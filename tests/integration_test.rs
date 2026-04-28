@@ -1,6 +1,10 @@
 use task_management::db::Database;
 use task_management::models::{TaskPriority, TaskStatus};
 
+use assert_cmd::Command;
+use predicates::prelude::*;
+use tempfile::NamedTempFile;
+
 fn test_db() -> Database {
     Database::open(":memory:").expect("open in-memory db")
 }
@@ -295,4 +299,191 @@ fn list_tasks_combined_filters() {
         .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].title, "Match");
+}
+
+// --- CLI integration tests for notes/timeline ---
+
+fn cli_cmd(db_path: &str) -> Command {
+    let mut cmd = Command::cargo_bin("task-management").unwrap();
+    cmd.arg("--db").arg(db_path);
+    cmd
+}
+
+fn create_task_via_cli(db_path: &str, title: &str) -> String {
+    let output = cli_cmd(db_path)
+        .args(["create", "--title", title])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        if let Some(id) = line.strip_prefix("ID:") {
+            return id.trim().to_string();
+        }
+    }
+    panic!("Could not extract task ID from create output: {stdout}");
+}
+
+#[test]
+fn note_creation() {
+    let tmp = NamedTempFile::new().unwrap();
+    let db_path = tmp.path().to_str().unwrap();
+    let task_id = create_task_via_cli(db_path, "Test note task");
+
+    cli_cmd(db_path)
+        .args(["note", &task_id, "My test note", "--author", "alice"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Note ID:"))
+        .stdout(predicate::str::contains(format!("Task:       {task_id}")))
+        .stdout(predicate::str::contains("Author:     alice"))
+        .stdout(predicate::str::contains("Body:       My test note"))
+        .stdout(predicate::str::contains("Created:"));
+}
+
+#[test]
+fn note_on_nonexistent_task() {
+    let tmp = NamedTempFile::new().unwrap();
+    let db_path = tmp.path().to_str().unwrap();
+    // Initialize the DB by creating and then using a fake id
+    let _task_id = create_task_via_cli(db_path, "Dummy");
+
+    let fake_id = "00000000-0000-0000-0000-000000000000";
+    cli_cmd(db_path)
+        .args(["note", fake_id, "Should fail"])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicate::str::contains(format!(
+            "Task not found: {fake_id}"
+        )));
+}
+
+#[test]
+fn history_with_events() {
+    let tmp = NamedTempFile::new().unwrap();
+    let db_path = tmp.path().to_str().unwrap();
+    let task_id = create_task_via_cli(db_path, "History task");
+
+    // Update status
+    cli_cmd(db_path)
+        .args(["update", &task_id, "--status", "in-progress"])
+        .assert()
+        .success();
+
+    // Add a note
+    cli_cmd(db_path)
+        .args(["note", &task_id, "Working on it", "--author", "bob"])
+        .assert()
+        .success();
+
+    // Check history
+    cli_cmd(db_path)
+        .args(["history", &task_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "History for task {task_id}"
+        )))
+        .stdout(predicate::str::contains("[created]"))
+        .stdout(predicate::str::contains("History task"))
+        .stdout(predicate::str::contains("[status_changed]"))
+        .stdout(predicate::str::contains("open"))
+        .stdout(predicate::str::contains("in-progress"))
+        .stdout(predicate::str::contains("[note_added]"))
+        .stdout(predicate::str::contains("Working on it (by bob)"))
+        .stdout(predicate::str::contains("3 event(s)"));
+}
+
+#[test]
+fn history_format_correct() {
+    let tmp = NamedTempFile::new().unwrap();
+    let db_path = tmp.path().to_str().unwrap();
+    let task_id = create_task_via_cli(db_path, "Format test");
+
+    // A newly created task should have exactly 1 "created" event
+    cli_cmd(db_path)
+        .args(["history", &task_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "History for task {task_id}"
+        )))
+        .stdout(predicate::str::contains("[created]"))
+        .stdout(predicate::str::contains("Format test"))
+        .stdout(predicate::str::contains("1 event(s)"))
+        .stdout(predicate::str::contains("\u{2500}"));
+}
+
+#[test]
+fn history_nonexistent_task() {
+    let tmp = NamedTempFile::new().unwrap();
+    let db_path = tmp.path().to_str().unwrap();
+    let _task_id = create_task_via_cli(db_path, "Dummy");
+
+    let fake_id = "00000000-0000-0000-0000-000000000000";
+    cli_cmd(db_path)
+        .args(["history", fake_id])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicate::str::contains(format!(
+            "Task not found: {fake_id}"
+        )));
+}
+
+#[test]
+fn auto_tracking_status() {
+    let tmp = NamedTempFile::new().unwrap();
+    let db_path = tmp.path().to_str().unwrap();
+    let task_id = create_task_via_cli(db_path, "Status tracking");
+
+    cli_cmd(db_path)
+        .args(["update", &task_id, "--status", "in-progress"])
+        .assert()
+        .success();
+
+    cli_cmd(db_path)
+        .args(["history", &task_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("[status_changed]"))
+        .stdout(predicate::str::contains("in-progress"));
+}
+
+#[test]
+fn auto_tracking_assignee() {
+    let tmp = NamedTempFile::new().unwrap();
+    let db_path = tmp.path().to_str().unwrap();
+    let task_id = create_task_via_cli(db_path, "Assignee tracking");
+
+    cli_cmd(db_path)
+        .args(["update", &task_id, "--assignee", "charlie"])
+        .assert()
+        .success();
+
+    cli_cmd(db_path)
+        .args(["history", &task_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("[assignee_changed]"))
+        .stdout(predicate::str::contains("charlie"));
+}
+
+#[test]
+fn auto_tracking_priority() {
+    let tmp = NamedTempFile::new().unwrap();
+    let db_path = tmp.path().to_str().unwrap();
+    let task_id = create_task_via_cli(db_path, "Priority tracking");
+
+    cli_cmd(db_path)
+        .args(["update", &task_id, "--priority", "critical"])
+        .assert()
+        .success();
+
+    cli_cmd(db_path)
+        .args(["history", &task_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("[priority_changed]"))
+        .stdout(predicate::str::contains("critical"));
 }

@@ -67,6 +67,15 @@ enum Commands {
         #[arg(long)]
         parent: Option<String>,
     },
+    Note {
+        id: String,
+        message: String,
+        #[arg(long)]
+        author: Option<String>,
+    },
+    History {
+        id: String,
+    },
 }
 
 fn main() {
@@ -208,6 +217,98 @@ fn main() {
                     );
                 }
                 println!("\n{} task(s) found.", tasks.len());
+            }
+        }
+        Commands::Note {
+            id,
+            message,
+            author,
+        } => {
+            let note = db.add_note(&id, &message, author.as_deref());
+            match note {
+                Ok(n) => {
+                    println!("Note ID:    {}", n.id);
+                    println!("Task:       {}", n.task_id);
+                    println!("Author:     {}", n.author.as_deref().unwrap_or("(none)"));
+                    println!("Body:       {}", n.body);
+                    println!("Created:    {}", n.created_at);
+                }
+                Err(_) => {
+                    eprintln!("Task not found: {id}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Commands::History { id } => {
+            let task = db.get_task(&id).unwrap_or_else(|e| {
+                eprintln!("Failed to get task: {e}");
+                std::process::exit(1);
+            });
+            if task.is_none() {
+                eprintln!("Task not found: {id}");
+                std::process::exit(1);
+            }
+
+            let events = db.get_timeline(&id).unwrap_or_else(|e| {
+                eprintln!("Failed to get timeline: {e}");
+                std::process::exit(1);
+            });
+
+            let separator = "\u{2500}".repeat(54);
+            println!("History for task {id}");
+            println!("{separator}");
+            if events.is_empty() {
+                println!("(no events)");
+            } else {
+                for event in &events {
+                    let description = match event.event_type.as_str() {
+                        "created" => event.new_value.clone().unwrap_or_default(),
+                        "status_changed" | "priority_changed" => {
+                            format!(
+                                "{} \u{2192} {}",
+                                event.old_value.as_deref().unwrap_or(""),
+                                event.new_value.as_deref().unwrap_or("")
+                            )
+                        }
+                        "assignee_changed" => {
+                            format!(
+                                "{} \u{2192} {}",
+                                event
+                                    .old_value
+                                    .as_deref()
+                                    .filter(|s| !s.is_empty())
+                                    .unwrap_or("(none)"),
+                                event
+                                    .new_value
+                                    .as_deref()
+                                    .filter(|s| !s.is_empty())
+                                    .unwrap_or("(none)")
+                            )
+                        }
+                        "note_added" => {
+                            let body = event.new_value.as_deref().unwrap_or("");
+                            match &event.actor {
+                                Some(actor) if !actor.is_empty() => {
+                                    format!("{body} (by {actor})")
+                                }
+                                _ => body.to_string(),
+                            }
+                        }
+                        _ => event.new_value.clone().unwrap_or_default(),
+                    };
+                    println!(
+                        "{:<20}  {:<18}  {}",
+                        event.occurred_at,
+                        format!("[{}]", event.event_type),
+                        description
+                    );
+                }
+            }
+            println!("{separator}");
+            if events.is_empty() {
+                // footer already printed separator
+            } else {
+                println!("{} event(s)", events.len());
             }
         }
     }
