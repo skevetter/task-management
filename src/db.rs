@@ -2,7 +2,7 @@ use chrono::Utc;
 use rusqlite::{Connection, Result, params};
 use uuid::Uuid;
 
-use crate::models::{Task, TaskPriority, TaskStatus};
+use crate::models::{Task, TaskNote, TaskPriority, TaskStatus, TimelineEvent};
 
 pub struct Database {
     conn: Connection,
@@ -12,19 +12,56 @@ impl Database {
     pub fn open(path: &str) -> Result<Self> {
         let conn = Connection::open(path)?;
         conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS tasks (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                description TEXT,
-                status TEXT NOT NULL DEFAULT 'open',
-                priority TEXT NOT NULL DEFAULT 'medium',
-                assignee TEXT,
-                tags TEXT NOT NULL DEFAULT '[]',
-                parent_task_id TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );",
+            "PRAGMA foreign_keys = ON;
+
+             CREATE TABLE IF NOT EXISTS tasks (
+                 id TEXT PRIMARY KEY,
+                 title TEXT NOT NULL,
+                 description TEXT,
+                 status TEXT NOT NULL DEFAULT 'open',
+                 priority TEXT NOT NULL DEFAULT 'medium',
+                 assignee TEXT,
+                 tags TEXT NOT NULL DEFAULT '[]',
+                 parent_task_id TEXT,
+                 created_at TEXT NOT NULL,
+                 updated_at TEXT NOT NULL
+             );
+
+             CREATE TABLE IF NOT EXISTS task_notes (
+                 id TEXT PRIMARY KEY,
+                 task_id TEXT NOT NULL,
+                 body TEXT NOT NULL,
+                 author TEXT,
+                 created_at TEXT NOT NULL,
+                 FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
+             );
+             CREATE INDEX IF NOT EXISTS idx_task_notes_task_id ON task_notes (task_id);
+
+             CREATE TABLE IF NOT EXISTS timeline_events (
+                 id TEXT PRIMARY KEY,
+                 task_id TEXT NOT NULL,
+                 event_type TEXT NOT NULL,
+                 old_value TEXT,
+                 new_value TEXT NOT NULL,
+                 actor TEXT,
+                 occurred_at TEXT NOT NULL,
+                 FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
+             );
+             CREATE INDEX IF NOT EXISTS idx_timeline_task_id ON timeline_events (task_id);
+             CREATE INDEX IF NOT EXISTS idx_timeline_occurred ON timeline_events (occurred_at);
+
+             CREATE TABLE IF NOT EXISTS schema_versions (
+                 version INTEGER PRIMARY KEY,
+                 applied_at TEXT NOT NULL
+             );",
         )?;
+
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (1, ?1)",
+            params![now],
+        )?;
+
         Ok(Self { conn })
     }
 
@@ -57,6 +94,8 @@ impl Database {
                 now,
             ],
         )?;
+
+        self.insert_timeline_event(&id, "created", None, title, None, &now)?;
 
         Ok(Task {
             id,
@@ -145,6 +184,37 @@ impl Database {
                 id,
             ],
         )?;
+
+        if task.status != new_status {
+            self.insert_timeline_event(
+                id,
+                "status_changed",
+                Some(&task.status.to_string()),
+                &new_status.to_string(),
+                None,
+                &now,
+            )?;
+        }
+        if task.assignee.as_deref() != new_assignee {
+            self.insert_timeline_event(
+                id,
+                "assignee_changed",
+                task.assignee.as_deref(),
+                new_assignee.unwrap_or(""),
+                None,
+                &now,
+            )?;
+        }
+        if task.priority != new_priority {
+            self.insert_timeline_event(
+                id,
+                "priority_changed",
+                Some(&task.priority.to_string()),
+                &new_priority.to_string(),
+                None,
+                &now,
+            )?;
+        }
 
         Ok(Some(Task {
             id: id.to_string(),
@@ -235,5 +305,116 @@ impl Database {
             tasks.push(row?);
         }
         Ok(tasks)
+    }
+
+    fn insert_timeline_event(
+        &self,
+        task_id: &str,
+        event_type: &str,
+        old_value: Option<&str>,
+        new_value: &str,
+        actor: Option<&str>,
+        occurred_at: &str,
+    ) -> Result<()> {
+        let id = Uuid::new_v4().to_string();
+        self.conn.execute(
+            "INSERT INTO timeline_events (id, task_id, event_type, old_value, new_value, actor, occurred_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![id, task_id, event_type, old_value, new_value, actor, occurred_at],
+        )?;
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub fn add_note(&self, task_id: &str, body: &str, author: Option<&str>) -> Result<TaskNote> {
+        self.get_task(task_id)?
+            .ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+
+        self.conn.execute("BEGIN IMMEDIATE", [])?;
+
+        let result = (|| -> Result<()> {
+            self.conn.execute(
+                "INSERT INTO task_notes (id, task_id, body, author, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![id, task_id, body, author, now],
+            )?;
+            self.insert_timeline_event(task_id, "note_added", None, body, author, &now)?;
+            Ok(())
+        })();
+
+        match result {
+            Ok(()) => {
+                self.conn.execute("COMMIT", [])?;
+            }
+            Err(e) => {
+                let _ = self.conn.execute("ROLLBACK", []);
+                return Err(e);
+            }
+        }
+
+        Ok(TaskNote {
+            id,
+            task_id: task_id.to_string(),
+            body: body.to_string(),
+            author: author.map(String::from),
+            created_at: now,
+        })
+    }
+
+    #[allow(dead_code)]
+    pub fn get_notes(&self, task_id: &str) -> Result<Vec<TaskNote>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, task_id, body, author, created_at
+             FROM task_notes
+             WHERE task_id = ?1
+             ORDER BY created_at ASC",
+        )?;
+
+        let rows = stmt.query_map(params![task_id], |row| {
+            Ok(TaskNote {
+                id: row.get(0)?,
+                task_id: row.get(1)?,
+                body: row.get(2)?,
+                author: row.get(3)?,
+                created_at: row.get(4)?,
+            })
+        })?;
+
+        let mut notes = Vec::new();
+        for row in rows {
+            notes.push(row?);
+        }
+        Ok(notes)
+    }
+
+    #[allow(dead_code)]
+    pub fn get_timeline(&self, task_id: &str) -> Result<Vec<TimelineEvent>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, task_id, event_type, old_value, new_value, actor, occurred_at
+             FROM timeline_events
+             WHERE task_id = ?1
+             ORDER BY occurred_at ASC",
+        )?;
+
+        let rows = stmt.query_map(params![task_id], |row| {
+            Ok(TimelineEvent {
+                id: row.get(0)?,
+                task_id: row.get(1)?,
+                event_type: row.get(2)?,
+                old_value: row.get(3)?,
+                new_value: row.get(4)?,
+                actor: row.get(5)?,
+                occurred_at: row.get(6)?,
+            })
+        })?;
+
+        let mut events = Vec::new();
+        for row in rows {
+            events.push(row?);
+        }
+        Ok(events)
     }
 }
