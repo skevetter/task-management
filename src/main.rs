@@ -55,6 +55,18 @@ enum Commands {
     Close {
         id: String,
     },
+    List {
+        #[arg(long, value_enum)]
+        status: Option<TaskStatus>,
+        #[arg(long)]
+        assignee: Option<String>,
+        #[arg(long, value_enum)]
+        priority: Option<TaskPriority>,
+        #[arg(long)]
+        tag: Option<String>,
+        #[arg(long)]
+        parent: Option<String>,
+    },
 }
 
 fn main() {
@@ -148,6 +160,54 @@ fn main() {
                     eprintln!("Task not found: {id}");
                     std::process::exit(1);
                 }
+            }
+        }
+        Commands::List {
+            status,
+            assignee,
+            priority,
+            tag,
+            parent,
+        } => {
+            let tasks = db
+                .list_tasks(
+                    status,
+                    assignee.as_deref(),
+                    priority,
+                    tag.as_deref(),
+                    parent.as_deref(),
+                )
+                .unwrap_or_else(|e| {
+                    eprintln!("Failed to list tasks: {e}");
+                    std::process::exit(1);
+                });
+            if tasks.is_empty() {
+                println!("No tasks found.");
+            } else {
+                let header = format!(
+                    "{:<10} {:<30} {:<14} {:<10} {}",
+                    "ID", "TITLE", "STATUS", "PRIORITY", "ASSIGNEE"
+                );
+                println!("{header}");
+                println!("{}", "-".repeat(76));
+                for task in &tasks {
+                    let short_id = if task.id.len() > 8 {
+                        &task.id[..8]
+                    } else {
+                        &task.id
+                    };
+                    let title = if task.title.len() > 28 {
+                        format!("{}...", &task.title[..25])
+                    } else {
+                        task.title.clone()
+                    };
+                    let assignee_str = task.assignee.as_deref().unwrap_or("-");
+                    println!(
+                        "{:<10} {:<30} {:<14} {:<10} {}",
+                        short_id, title, task.status, task.priority, assignee_str
+                    );
+                }
+                println!("\n{} task(s) found.", tasks.len());
             }
         }
     }

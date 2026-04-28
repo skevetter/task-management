@@ -1,0 +1,298 @@
+use task_management::db::Database;
+use task_management::models::{TaskPriority, TaskStatus};
+
+fn test_db() -> Database {
+    Database::open(":memory:").expect("open in-memory db")
+}
+
+#[test]
+fn create_and_retrieve_task() {
+    let db = test_db();
+    let task = db
+        .create_task(
+            "Buy milk",
+            Some("From the store"),
+            TaskPriority::Low,
+            Some("alice"),
+            &[],
+            None,
+        )
+        .unwrap();
+    assert_eq!(task.title, "Buy milk");
+    assert_eq!(task.status, TaskStatus::Open);
+
+    let fetched = db.get_task(&task.id).unwrap().expect("task should exist");
+    assert_eq!(fetched.id, task.id);
+    assert_eq!(fetched.title, "Buy milk");
+    assert_eq!(fetched.description.as_deref(), Some("From the store"));
+    assert_eq!(fetched.assignee.as_deref(), Some("alice"));
+}
+
+#[test]
+fn update_task_status() {
+    let db = test_db();
+    let task = db
+        .create_task("Deploy v2", None, TaskPriority::High, None, &[], None)
+        .unwrap();
+    assert_eq!(task.status, TaskStatus::Open);
+
+    let updated = db
+        .update_task(
+            &task.id,
+            None,
+            None,
+            Some(TaskStatus::InProgress),
+            None,
+            None,
+            None,
+        )
+        .unwrap()
+        .expect("task should exist");
+    assert_eq!(updated.status, TaskStatus::InProgress);
+
+    let fetched = db.get_task(&task.id).unwrap().expect("task should exist");
+    assert_eq!(fetched.status, TaskStatus::InProgress);
+}
+
+#[test]
+fn close_task() {
+    let db = test_db();
+    let task = db
+        .create_task("Fix bug", None, TaskPriority::Critical, None, &[], None)
+        .unwrap();
+    let closed = db.close_task(&task.id).unwrap().expect("task should exist");
+    assert_eq!(closed.status, TaskStatus::Closed);
+
+    let fetched = db.get_task(&task.id).unwrap().expect("task should exist");
+    assert_eq!(fetched.status, TaskStatus::Closed);
+}
+
+#[test]
+fn list_all_tasks() {
+    let db = test_db();
+    db.create_task("Task A", None, TaskPriority::Low, None, &[], None)
+        .unwrap();
+    db.create_task("Task B", None, TaskPriority::High, None, &[], None)
+        .unwrap();
+    db.create_task("Task C", None, TaskPriority::Medium, None, &[], None)
+        .unwrap();
+
+    let all = db.list_tasks(None, None, None, None, None).unwrap();
+    assert_eq!(all.len(), 3);
+}
+
+#[test]
+fn list_tasks_filter_by_status() {
+    let db = test_db();
+    let t1 = db
+        .create_task("Open task", None, TaskPriority::Medium, None, &[], None)
+        .unwrap();
+    db.create_task("Another open", None, TaskPriority::Medium, None, &[], None)
+        .unwrap();
+    db.update_task(&t1.id, None, None, Some(TaskStatus::Done), None, None, None)
+        .unwrap();
+
+    let open = db
+        .list_tasks(Some(TaskStatus::Open), None, None, None, None)
+        .unwrap();
+    assert_eq!(open.len(), 1);
+    assert_eq!(open[0].title, "Another open");
+
+    let done = db
+        .list_tasks(Some(TaskStatus::Done), None, None, None, None)
+        .unwrap();
+    assert_eq!(done.len(), 1);
+    assert_eq!(done[0].title, "Open task");
+}
+
+#[test]
+fn list_tasks_filter_by_priority() {
+    let db = test_db();
+    db.create_task("Low prio", None, TaskPriority::Low, None, &[], None)
+        .unwrap();
+    db.create_task("High prio", None, TaskPriority::High, None, &[], None)
+        .unwrap();
+    db.create_task("Another high", None, TaskPriority::High, None, &[], None)
+        .unwrap();
+
+    let high = db
+        .list_tasks(None, None, Some(TaskPriority::High), None, None)
+        .unwrap();
+    assert_eq!(high.len(), 2);
+    for t in &high {
+        assert_eq!(t.priority, TaskPriority::High);
+    }
+}
+
+#[test]
+fn list_tasks_filter_by_tag() {
+    let db = test_db();
+    db.create_task(
+        "Tagged",
+        None,
+        TaskPriority::Medium,
+        None,
+        &["backend".into(), "rust".into()],
+        None,
+    )
+    .unwrap();
+    db.create_task(
+        "Other tag",
+        None,
+        TaskPriority::Medium,
+        None,
+        &["frontend".into()],
+        None,
+    )
+    .unwrap();
+    db.create_task("No tags", None, TaskPriority::Medium, None, &[], None)
+        .unwrap();
+
+    let backend = db
+        .list_tasks(None, None, None, Some("backend"), None)
+        .unwrap();
+    assert_eq!(backend.len(), 1);
+    assert_eq!(backend[0].title, "Tagged");
+
+    let rust = db.list_tasks(None, None, None, Some("rust"), None).unwrap();
+    assert_eq!(rust.len(), 1);
+
+    let frontend = db
+        .list_tasks(None, None, None, Some("frontend"), None)
+        .unwrap();
+    assert_eq!(frontend.len(), 1);
+    assert_eq!(frontend[0].title, "Other tag");
+}
+
+#[test]
+fn list_tasks_filter_by_assignee() {
+    let db = test_db();
+    db.create_task(
+        "Alice task",
+        None,
+        TaskPriority::Medium,
+        Some("alice"),
+        &[],
+        None,
+    )
+    .unwrap();
+    db.create_task(
+        "Bob task",
+        None,
+        TaskPriority::Medium,
+        Some("bob"),
+        &[],
+        None,
+    )
+    .unwrap();
+    db.create_task("Unassigned", None, TaskPriority::Medium, None, &[], None)
+        .unwrap();
+
+    let alice = db
+        .list_tasks(None, Some("alice"), None, None, None)
+        .unwrap();
+    assert_eq!(alice.len(), 1);
+    assert_eq!(alice[0].title, "Alice task");
+}
+
+#[test]
+fn list_tasks_filter_by_parent() {
+    let db = test_db();
+    let parent = db
+        .create_task("Parent", None, TaskPriority::High, None, &[], None)
+        .unwrap();
+    db.create_task(
+        "Child 1",
+        None,
+        TaskPriority::Medium,
+        None,
+        &[],
+        Some(&parent.id),
+    )
+    .unwrap();
+    db.create_task(
+        "Child 2",
+        None,
+        TaskPriority::Low,
+        None,
+        &[],
+        Some(&parent.id),
+    )
+    .unwrap();
+    db.create_task("Orphan", None, TaskPriority::Medium, None, &[], None)
+        .unwrap();
+
+    let children = db
+        .list_tasks(None, None, None, None, Some(&parent.id))
+        .unwrap();
+    assert_eq!(children.len(), 2);
+    for child in &children {
+        assert_eq!(child.parent_task_id.as_deref(), Some(parent.id.as_str()));
+    }
+}
+
+#[test]
+fn create_task_with_parent() {
+    let db = test_db();
+    let parent = db
+        .create_task("Epic", None, TaskPriority::High, None, &[], None)
+        .unwrap();
+    let child = db
+        .create_task(
+            "Sub-task",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            Some(&parent.id),
+        )
+        .unwrap();
+    assert_eq!(child.parent_task_id.as_deref(), Some(parent.id.as_str()));
+
+    let fetched = db.get_task(&child.id).unwrap().expect("child should exist");
+    assert_eq!(fetched.parent_task_id.as_deref(), Some(parent.id.as_str()));
+}
+
+#[test]
+fn list_tasks_combined_filters() {
+    let db = test_db();
+    db.create_task(
+        "Match",
+        None,
+        TaskPriority::High,
+        Some("alice"),
+        &["backend".into()],
+        None,
+    )
+    .unwrap();
+    db.create_task(
+        "Wrong assignee",
+        None,
+        TaskPriority::High,
+        Some("bob"),
+        &["backend".into()],
+        None,
+    )
+    .unwrap();
+    db.create_task(
+        "Wrong prio",
+        None,
+        TaskPriority::Low,
+        Some("alice"),
+        &["backend".into()],
+        None,
+    )
+    .unwrap();
+
+    let results = db
+        .list_tasks(
+            None,
+            Some("alice"),
+            Some(TaskPriority::High),
+            Some("backend"),
+            None,
+        )
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].title, "Match");
+}

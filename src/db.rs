@@ -163,4 +163,77 @@ impl Database {
     pub fn close_task(&self, id: &str) -> Result<Option<Task>> {
         self.update_task(id, None, None, Some(TaskStatus::Closed), None, None, None)
     }
+
+    pub fn list_tasks(
+        &self,
+        status: Option<TaskStatus>,
+        assignee: Option<&str>,
+        priority: Option<TaskPriority>,
+        tag: Option<&str>,
+        parent: Option<&str>,
+    ) -> Result<Vec<Task>> {
+        let mut conditions = Vec::new();
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+        if let Some(s) = status {
+            conditions.push("status = ?".to_string());
+            param_values.push(Box::new(s.to_string()));
+        }
+        if let Some(a) = assignee {
+            conditions.push("assignee = ?".to_string());
+            param_values.push(Box::new(a.to_string()));
+        }
+        if let Some(p) = priority {
+            conditions.push("priority = ?".to_string());
+            param_values.push(Box::new(p.to_string()));
+        }
+        if let Some(t) = tag {
+            let pattern = format!("%\"{t}\"%");
+            conditions.push("tags LIKE ?".to_string());
+            param_values.push(Box::new(pattern));
+        }
+        if let Some(pid) = parent {
+            conditions.push("parent_task_id = ?".to_string());
+            param_values.push(Box::new(pid.to_string()));
+        }
+
+        let mut sql =
+            "SELECT id, title, description, status, priority, assignee, tags, parent_task_id, created_at, updated_at FROM tasks"
+                .to_string();
+        if !conditions.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&conditions.join(" AND "));
+        }
+        sql.push_str(" ORDER BY created_at DESC");
+
+        let params: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params.as_slice(), |row| {
+            let status_str: String = row.get(3)?;
+            let priority_str: String = row.get(4)?;
+            let tags_str: String = row.get(6)?;
+
+            Ok(Task {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                description: row.get(2)?,
+                status: status_str.parse::<TaskStatus>().unwrap_or(TaskStatus::Open),
+                priority: priority_str
+                    .parse::<TaskPriority>()
+                    .unwrap_or(TaskPriority::Medium),
+                assignee: row.get(5)?,
+                tags: serde_json::from_str(&tags_str).unwrap_or_default(),
+                parent_task_id: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
+            })
+        })?;
+
+        let mut tasks = Vec::new();
+        for row in rows {
+            tasks.push(row?);
+        }
+        Ok(tasks)
+    }
 }
