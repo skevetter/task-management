@@ -106,7 +106,7 @@ pub struct TimelineEvent {
     pub task_id: String,
     pub event_type: String,
     pub old_value: Option<String>,
-    pub new_value: String,
+    pub new_value: Option<String>,
     pub actor: Option<String>,
     pub occurred_at: String,
 }

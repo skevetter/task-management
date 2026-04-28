@@ -42,7 +42,7 @@ impl Database {
                  task_id TEXT NOT NULL,
                  event_type TEXT NOT NULL,
                  old_value TEXT,
-                 new_value TEXT NOT NULL,
+                 new_value TEXT,
                  actor TEXT,
                  occurred_at TEXT NOT NULL,
                  FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
@@ -95,7 +95,7 @@ impl Database {
             ],
         )?;
 
-        self.insert_timeline_event(&id, "created", None, title, None, &now)?;
+        self.insert_timeline_event(&id, "created", None, Some(title), None, &now)?;
 
         Ok(Task {
             id,
@@ -190,7 +190,7 @@ impl Database {
                 id,
                 "status_changed",
                 Some(&task.status.to_string()),
-                &new_status.to_string(),
+                Some(&new_status.to_string()),
                 None,
                 &now,
             )?;
@@ -200,7 +200,7 @@ impl Database {
                 id,
                 "assignee_changed",
                 task.assignee.as_deref(),
-                new_assignee.unwrap_or(""),
+                new_assignee,
                 None,
                 &now,
             )?;
@@ -210,7 +210,7 @@ impl Database {
                 id,
                 "priority_changed",
                 Some(&task.priority.to_string()),
-                &new_priority.to_string(),
+                Some(&new_priority.to_string()),
                 None,
                 &now,
             )?;
@@ -312,7 +312,7 @@ impl Database {
         task_id: &str,
         event_type: &str,
         old_value: Option<&str>,
-        new_value: &str,
+        new_value: Option<&str>,
         actor: Option<&str>,
         occurred_at: &str,
     ) -> Result<()> {
@@ -341,7 +341,7 @@ impl Database {
                  VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![id, task_id, body, author, now],
             )?;
-            self.insert_timeline_event(task_id, "note_added", None, body, author, &now)?;
+            self.insert_timeline_event(task_id, "note_added", None, Some(body), author, &now)?;
             Ok(())
         })();
 
