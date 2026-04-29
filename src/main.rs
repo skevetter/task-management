@@ -35,7 +35,11 @@ fn default_db_path() -> PathBuf {
 }
 
 #[derive(Parser)]
-#[command(name = "task-management", about = "A task management CLI tool")]
+#[command(
+    name = "task-management",
+    about = "A task management CLI tool",
+    version
+)]
 struct Cli {
     #[arg(long, global = true)]
     db: Option<String>,
