@@ -91,7 +91,7 @@ impl TaskMcpServer {
         Parameters(params): Parameters<UpdateTaskParams>,
     ) -> Result<CallToolResult, ErrorData> {
         let id = self.resolve_id(&params.id)?;
-        let actor = self.resolve_actor(params.actor);
+        let _actor = self.resolve_actor(params.actor);
 
         let status = params
             .status
@@ -120,7 +120,6 @@ impl TaskMcpServer {
                 priority,
                 params.assignee.as_deref(),
                 tags_slice,
-                actor.as_deref(),
             )
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
             .ok_or_else(|| ErrorData::invalid_params(format!("Task not found: {id}"), None))?;
@@ -136,11 +135,11 @@ impl TaskMcpServer {
         Parameters(params): Parameters<CloseTaskParams>,
     ) -> Result<CallToolResult, ErrorData> {
         let id = self.resolve_id(&params.id)?;
-        let actor = self.resolve_actor(params.actor);
+        let _actor = self.resolve_actor(params.actor);
 
         let db = self.db.lock().unwrap();
         let task = db
-            .close_task(&id, actor.as_deref())
+            .close_task(&id)
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
             .ok_or_else(|| ErrorData::invalid_params(format!("Task not found: {id}"), None))?;
 

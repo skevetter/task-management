@@ -73,10 +73,7 @@ fn close_task() {
             None,
         )
         .unwrap();
-    let closed = db
-        .close_task(&task.id, None)
-        .unwrap()
-        .expect("task should exist");
+    let closed = db.close_task(&task.id).unwrap().expect("task should exist");
     assert_eq!(closed.status, TaskStatus::Closed);
 
     let fetched = db.get_task(&task.id).unwrap().expect("task should exist");
@@ -123,17 +120,8 @@ fn list_tasks_filter_by_status() {
         None,
     )
     .unwrap();
-    db.update_task(
-        &t1.id,
-        None,
-        None,
-        Some(TaskStatus::Done),
-        None,
-        None,
-        None,
-        None,
-    )
-    .unwrap();
+    db.update_task(&t1.id, None, None, Some(TaskStatus::Done), None, None, None)
+        .unwrap();
 
     let open = db
         .list_tasks(Some(TaskStatus::Open), None, None, None, None, None, None)
