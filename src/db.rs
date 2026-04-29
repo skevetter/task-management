@@ -105,6 +105,7 @@ impl Database {
         Ok(Self { conn })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn create_task(
         &self,
         title: &str,
@@ -113,6 +114,7 @@ impl Database {
         assignee: Option<&str>,
         tags: &[String],
         parent_task_id: Option<&str>,
+        actor: Option<&str>,
     ) -> Result<Task> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
@@ -138,7 +140,7 @@ impl Database {
                 ],
             )?;
 
-            self.insert_timeline_event(&id, "created", None, title, None, &now)?;
+            self.insert_timeline_event(&id, "created", None, title, actor, &now)?;
 
             if let Some(pid) = parent_task_id {
                 let link_id = Uuid::new_v4().to_string();

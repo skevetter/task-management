@@ -1,4 +1,5 @@
 mod db;
+mod mcp;
 mod models;
 
 use std::path::PathBuf;
@@ -191,6 +192,7 @@ fn main() {
                     assignee.as_deref(),
                     &tags,
                     parent.as_deref(),
+                    None,
                 )
                 .unwrap_or_else(|e| {
                     eprintln!("Failed to create task: {e}");
@@ -476,15 +478,23 @@ fn main() {
         }
         Commands::Serve {
             transport,
-            namespace: _,
+            namespace,
         } => {
             if transport != "stdio" {
                 eprintln!("Only stdio transport is supported");
                 std::process::exit(1);
             }
-            eprintln!("MCP server starting (stdio transport)...");
-            // T3 will implement the actual MCP server startup
-            todo!("MCP server implementation in T3");
+            let server = mcp::server::TaskMcpServer::new(db, namespace, None);
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(async {
+                use rmcp::ServiceExt;
+                let transport = rmcp::transport::io::stdio();
+                let service = server.serve(transport).await.unwrap();
+                service.waiting().await.unwrap();
+            });
         }
         Commands::Link { command } => match command {
             LinkCommands::Add {

@@ -4,7 +4,9 @@ use std::str::FromStr;
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum LinkType {
     Parent,
@@ -53,7 +55,9 @@ impl LinkType {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum, schemars::JsonSchema,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum TaskStatus {
     Open,
@@ -90,7 +94,9 @@ impl FromStr for TaskStatus {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum, schemars::JsonSchema,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum TaskPriority {
     Low,
@@ -160,7 +166,7 @@ pub struct TimelineEvent {
     pub occurred_at: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskDetail {
     #[serde(flatten)]
     pub task: Task,
@@ -169,7 +175,7 @@ pub struct TaskDetail {
     pub links: Vec<TaskLink>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskLink {
     pub link_id: String,
     pub relationship: String,
