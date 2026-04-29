@@ -67,3 +67,56 @@ task-management show a3f1
 ```
 
 Ambiguous prefixes exit with an error listing all matches.
+
+## MCP Server
+
+The MCP server exposes all task operations as tools over stdio, enabling structured JSON access for AI agents.
+
+```bash
+task-management serve
+task-management serve --db /path/to/tasks.db --namespace my-project
+```
+
+### Agent Configuration
+
+Claude Code (`.claude/settings.json`):
+
+```json
+{
+  "mcpServers": {
+    "task-management": {
+      "command": "task-management",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+Cursor (`.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "task-management": {
+      "command": "task-management",
+      "args": ["serve", "--db", "/path/to/tasks.db"]
+    }
+  }
+}
+```
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| create_task | Create a new task |
+| list_tasks | List/filter tasks |
+| show_task | Show task detail with notes, timeline, links |
+| update_task | Update task fields |
+| close_task | Close a task |
+| add_note | Add a note to a task |
+| task_history | Get task timeline events |
+| link_tasks | Create a link between tasks |
+| list_links | List links for a task |
+
+Tool parameters are auto-discovered via the MCP protocol.
