@@ -153,6 +153,13 @@ fn main() {
 
     let json = cli.json;
 
+    let resolve = |prefix: &str| -> String {
+        db.resolve_short_id(prefix).unwrap_or_else(|e| {
+            eprintln!("{e}");
+            std::process::exit(1);
+        })
+    };
+
     match cli.command {
         Commands::Create {
             title,
@@ -182,6 +189,7 @@ fn main() {
             }
         }
         Commands::Show { id } => {
+            let id = resolve(&id);
             let task = db.get_task(&id).unwrap_or_else(|e| {
                 eprintln!("Failed to get task: {e}");
                 std::process::exit(1);
@@ -247,6 +255,7 @@ fn main() {
             assignee,
             tags,
         } => {
+            let id = resolve(&id);
             let tags_opt = if tags.is_empty() {
                 None
             } else {
@@ -281,6 +290,7 @@ fn main() {
             }
         }
         Commands::Close { id } => {
+            let id = resolve(&id);
             let task = db.close_task(&id).unwrap_or_else(|e| {
                 eprintln!("Failed to close task: {e}");
                 std::process::exit(1);
@@ -358,6 +368,7 @@ fn main() {
             message,
             author,
         } => {
+            let id = resolve(&id);
             let note = db.add_note(&id, &message, author.as_deref());
             match note {
                 Ok(n) => {
@@ -378,6 +389,7 @@ fn main() {
             }
         }
         Commands::History { id } => {
+            let id = resolve(&id);
             let task = db.get_task(&id).unwrap_or_else(|e| {
                 eprintln!("Failed to get task: {e}");
                 std::process::exit(1);
@@ -452,6 +464,8 @@ fn main() {
                 relationship,
                 target_id,
             } => {
+                let task_id = resolve(&task_id);
+                let target_id = resolve(&target_id);
                 let link_id = db
                     .create_link(&task_id, &target_id, &relationship)
                     .unwrap_or_else(|e| {
@@ -501,6 +515,7 @@ fn main() {
                 }
             }
             LinkCommands::List { task_id } => {
+                let task_id = resolve(&task_id);
                 let raw_links = db.get_links(&task_id).unwrap_or_else(|e| {
                     eprintln!("Failed to get links: {e}");
                     std::process::exit(1);

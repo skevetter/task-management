@@ -360,7 +360,7 @@ fn note_on_nonexistent_task() {
         .failure()
         .code(1)
         .stderr(predicate::str::contains(format!(
-            "Task not found: {fake_id}"
+            "No task found matching prefix '{fake_id}'"
         )));
 }
 
@@ -433,7 +433,7 @@ fn history_nonexistent_task() {
         .failure()
         .code(1)
         .stderr(predicate::str::contains(format!(
-            "Task not found: {fake_id}"
+            "No task found matching prefix '{fake_id}'"
         )));
 }
 

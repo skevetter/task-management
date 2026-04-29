@@ -177,6 +177,32 @@ impl Database {
         })
     }
 
+    pub fn resolve_short_id(&self, prefix: &str) -> std::result::Result<String, String> {
+        if prefix.len() < 4 {
+            return Err("Prefix must be at least 4 characters".to_string());
+        }
+        let pattern = format!("{prefix}%");
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM tasks WHERE id LIKE ?1")
+            .map_err(|e| e.to_string())?;
+        let ids: Vec<String> = stmt
+            .query_map(params![pattern], |row| row.get(0))
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        match ids.len() {
+            0 => Err(format!("No task found matching prefix '{prefix}'")),
+            1 => Ok(ids.into_iter().next().unwrap()),
+            _ => Err(format!(
+                "Ambiguous prefix '{}' matches: {}",
+                prefix,
+                ids.join(", ")
+            )),
+        }
+    }
+
     pub fn get_task(&self, id: &str) -> Result<Option<Task>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, title, description, status, priority, assignee, tags, parent_task_id, created_at, updated_at
