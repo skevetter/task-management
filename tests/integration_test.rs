@@ -902,7 +902,7 @@ fn version_flag() {
     cmd.arg("--version")
         .assert()
         .success()
-        .stdout(predicate::str::contains("0.5.0"));
+        .stdout(predicate::str::contains("0.5.1"));
 }
 
 #[test]

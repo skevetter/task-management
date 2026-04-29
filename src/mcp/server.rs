@@ -416,11 +416,14 @@ impl TaskMcpServer {
         Parameters(params): Parameters<UnlinkTasksParams>,
     ) -> Result<CallToolResult, ErrorData> {
         let db = self.db.lock().unwrap();
-        db.remove_link(&params.link_id)
+        let link_id = db
+            .resolve_short_link_id(&params.link_id)
+            .map_err(|e| ErrorData::invalid_params(e, None))?;
+        db.remove_link(&link_id)
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
         Ok(CallToolResult::success(vec![Content::text(
-            serde_json::json!({"status": "ok", "link_id": params.link_id}).to_string(),
+            serde_json::json!({"status": "ok", "link_id": link_id}).to_string(),
         )]))
     }
 

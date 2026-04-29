@@ -713,6 +713,10 @@ fn main() {
                 }
             }
             LinkCommands::Remove { link_id } => {
+                let link_id = db.resolve_short_link_id(&link_id).unwrap_or_else(|e| {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                });
                 db.remove_link(&link_id).unwrap_or_else(|e| {
                     eprintln!("Failed to remove link: {e}");
                     std::process::exit(1);

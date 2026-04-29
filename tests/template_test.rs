@@ -82,7 +82,14 @@ fn cli_create_with_template_flag() {
     let db_path = tmp.path().to_str().unwrap();
 
     let output = cli_cmd(db_path)
-        .args(["--json", "create", "--title", "Login fails", "--template", "bug-report"])
+        .args([
+            "--json",
+            "create",
+            "--title",
+            "Login fails",
+            "--template",
+            "bug-report",
+        ])
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -125,7 +132,16 @@ fn cli_template_create_and_delete() {
     let db_path = tmp.path().to_str().unwrap();
 
     cli_cmd(db_path)
-        .args(["template", "create", "--name", "hotfix", "--title-pattern", "[Hotfix] {title}", "--priority", "critical"])
+        .args([
+            "template",
+            "create",
+            "--name",
+            "hotfix",
+            "--title-pattern",
+            "[Hotfix] {title}",
+            "--priority",
+            "critical",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("Template 'hotfix' created."));

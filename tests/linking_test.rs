@@ -786,3 +786,161 @@ fn migration_parent_task_id_to_links() {
     assert_eq!(children.len(), 1);
     assert_eq!(children[0].id, "child-1");
 }
+
+// --- Short prefix resolution for unlink (INI-121) ---
+
+#[test]
+fn remove_link_with_4_char_prefix() {
+    let db = test_db();
+    let t1 = db
+        .create_task(
+            "A",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
+        .unwrap();
+    let t2 = db
+        .create_task(
+            "B",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
+        .unwrap();
+
+    let link_id = db
+        .create_link(&t1.id, &t2.id, &LinkType::RelatedTo)
+        .unwrap();
+    let prefix = &link_id[..4];
+
+    let resolved = db.resolve_short_link_id(prefix).unwrap();
+    assert_eq!(resolved, link_id);
+
+    db.remove_link(&resolved).unwrap();
+    assert!(db.get_links(&t1.id).unwrap().is_empty());
+}
+
+#[test]
+fn remove_link_with_8_char_prefix() {
+    let db = test_db();
+    let t1 = db
+        .create_task(
+            "A",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
+        .unwrap();
+    let t2 = db
+        .create_task(
+            "B",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
+        .unwrap();
+
+    let link_id = db.create_link(&t1.id, &t2.id, &LinkType::Blocks).unwrap();
+    let prefix = &link_id[..8];
+
+    let resolved = db.resolve_short_link_id(prefix).unwrap();
+    assert_eq!(resolved, link_id);
+
+    db.remove_link(&resolved).unwrap();
+    assert!(db.get_links(&t1.id).unwrap().is_empty());
+}
+
+#[test]
+fn remove_link_with_full_uuid() {
+    let db = test_db();
+    let t1 = db
+        .create_task(
+            "A",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
+        .unwrap();
+    let t2 = db
+        .create_task(
+            "B",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
+        .unwrap();
+
+    let link_id = db.create_link(&t1.id, &t2.id, &LinkType::Parent).unwrap();
+
+    let resolved = db.resolve_short_link_id(&link_id).unwrap();
+    assert_eq!(resolved, link_id);
+
+    db.remove_link(&resolved).unwrap();
+    assert!(db.get_links(&t1.id).unwrap().is_empty());
+}
+
+#[test]
+fn resolve_short_link_id_too_short() {
+    let db = test_db();
+    let result = db.resolve_short_link_id("abc");
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("at least 4 characters"));
+}
+
+#[test]
+fn resolve_short_link_id_no_match() {
+    let db = test_db();
+    let result = db.resolve_short_link_id("zzzz");
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("No link found"));
+}
+
+#[test]
+fn cli_link_remove_short_prefix() {
+    let tmp = NamedTempFile::new().unwrap();
+    let db_path = tmp.path().to_str().unwrap();
+    let t1 = create_task_via_cli(db_path, "Task Alpha");
+    let t2 = create_task_via_cli(db_path, "Task Beta");
+
+    let db = Database::open(db_path).unwrap();
+    let link_id = db.create_link(&t1, &t2, &LinkType::RelatedTo).unwrap();
+    drop(db);
+
+    let prefix_8 = &link_id[..8];
+    cli_cmd(db_path)
+        .args(["link", "remove", prefix_8])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("removed"));
+
+    cli_cmd(db_path)
+        .args(["link", "list", &t1])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No links found"));
+}
