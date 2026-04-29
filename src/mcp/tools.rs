@@ -75,6 +75,11 @@ pub struct LinkTasksParams {
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct UnlinkTasksParams {
+    pub link_id: String,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct ListLinksParams {
     pub id: String,
     pub namespace: Option<String>,

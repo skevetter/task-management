@@ -441,3 +441,32 @@ fn test_mcp_list_tasks_no_namespace_returns_only_default() {
     assert_eq!(tasks[0]["title"].as_str().unwrap(), "Default task");
     assert_eq!(tasks[0]["namespace"].as_str().unwrap(), "default");
 }
+
+#[test]
+fn test_unlink_tasks() {
+    let tmp = NamedTempFile::new().unwrap();
+    let mut client = McpTestClient::new(tmp.path().to_str().unwrap());
+
+    let resp_a = client.call_tool("create_task", serde_json::json!({"title": "Unlink A"}));
+    let id_a = extract_content(&resp_a)["id"].as_str().unwrap().to_string();
+
+    let resp_b = client.call_tool("create_task", serde_json::json!({"title": "Unlink B"}));
+    let id_b = extract_content(&resp_b)["id"].as_str().unwrap().to_string();
+
+    let link_resp = client.call_tool(
+        "link_tasks",
+        serde_json::json!({"source_id": id_a, "relationship": "blocks", "target_id": id_b}),
+    );
+    let link_id = extract_content(&link_resp)["link_id"].as_str().unwrap().to_string();
+
+    let unlink_resp = client.call_tool("unlink_tasks", serde_json::json!({"link_id": link_id}));
+    let result = extract_content(&unlink_resp);
+    assert_eq!(result["status"].as_str().unwrap(), "ok");
+
+    let links_resp = client.call_tool("list_links", serde_json::json!({"id": id_a}));
+    let links = extract_content(&links_resp);
+    assert_eq!(links.as_array().unwrap().len(), 0);
+
+    let bad_resp = client.call_tool("unlink_tasks", serde_json::json!({"link_id": "nonexistent"}));
+    assert!(bad_resp.get("error").is_some());
+}

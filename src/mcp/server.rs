@@ -358,4 +358,18 @@ impl TaskMcpServer {
             serde_json::to_string(&links).unwrap(),
         )]))
     }
+
+    #[tool(description = "Remove a link between two tasks")]
+    fn unlink_tasks(
+        &self,
+        Parameters(params): Parameters<UnlinkTasksParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let db = self.db.lock().unwrap();
+        db.remove_link(&params.link_id)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::json!({"status": "ok", "link_id": params.link_id}).to_string(),
+        )]))
+    }
 }
