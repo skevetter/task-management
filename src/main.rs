@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 use db::Database;
-use models::{TaskPriority, TaskStatus};
+use models::{LinkType, TaskPriority, TaskStatus};
 
 fn default_db_path() -> PathBuf {
     let base = match std::env::var("XDG_DATA_HOME") {
@@ -92,6 +92,10 @@ enum Commands {
         tag: Option<String>,
         #[arg(long)]
         parent: Option<String>,
+        #[arg(long)]
+        blocked_by: Option<String>,
+        #[arg(long)]
+        blocks: Option<String>,
     },
     Note {
         id: String,
@@ -101,6 +105,26 @@ enum Commands {
     },
     History {
         id: String,
+    },
+    Link {
+        #[command(subcommand)]
+        command: LinkCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum LinkCommands {
+    Add {
+        task_id: String,
+        #[arg(value_enum)]
+        relationship: LinkType,
+        target_id: String,
+    },
+    Remove {
+        link_id: String,
+    },
+    List {
+        task_id: String,
     },
 }
 
@@ -154,7 +178,24 @@ fn main() {
                 std::process::exit(1);
             });
             match task {
-                Some(t) => println!("{t}"),
+                Some(t) => {
+                    println!("{t}");
+                    let links = db.get_links(&t.id).unwrap_or_else(|e| {
+                        eprintln!("Failed to get links: {e}");
+                        std::process::exit(1);
+                    });
+                    if !links.is_empty() {
+                        println!("Links:");
+                        for (_, link_type, related_id, title) in &links {
+                            let short_id = if related_id.len() > 8 {
+                                &related_id[..8]
+                            } else {
+                                related_id
+                            };
+                            println!("  {link_type}  {short_id}  ({title})");
+                        }
+                    }
+                }
                 None => {
                     eprintln!("Task not found: {id}");
                     std::process::exit(1);
@@ -216,6 +257,8 @@ fn main() {
             priority,
             tag,
             parent,
+            blocked_by,
+            blocks,
         } => {
             let tasks = db
                 .list_tasks(
@@ -224,6 +267,8 @@ fn main() {
                     priority,
                     tag.as_deref(),
                     parent.as_deref(),
+                    blocked_by.as_deref(),
+                    blocks.as_deref(),
                 )
                 .unwrap_or_else(|e| {
                     eprintln!("Failed to list tasks: {e}");
@@ -345,5 +390,75 @@ fn main() {
                 println!("{} event(s)", events.len());
             }
         }
+        Commands::Link { command } => match command {
+            LinkCommands::Add {
+                task_id,
+                relationship,
+                target_id,
+            } => {
+                let link_id = db
+                    .create_link(&task_id, &target_id, &relationship)
+                    .unwrap_or_else(|e| {
+                        eprintln!("Failed to create link: {e}");
+                        std::process::exit(1);
+                    });
+                let short_id = if link_id.len() > 8 {
+                    &link_id[..8]
+                } else {
+                    &link_id
+                };
+                println!("Link created: {short_id} ({task_id} {relationship} {target_id})");
+            }
+            LinkCommands::Remove { link_id } => {
+                db.remove_link(&link_id).unwrap_or_else(|e| {
+                    eprintln!("Failed to remove link: {e}");
+                    std::process::exit(1);
+                });
+                let short_id = if link_id.len() > 8 {
+                    &link_id[..8]
+                } else {
+                    &link_id
+                };
+                println!("Link {short_id} removed.");
+            }
+            LinkCommands::List { task_id } => {
+                let links = db.get_links(&task_id).unwrap_or_else(|e| {
+                    eprintln!("Failed to get links: {e}");
+                    std::process::exit(1);
+                });
+                if links.is_empty() {
+                    println!("No links found for task {task_id}.");
+                } else {
+                    println!(
+                        "{:<10} {:<14} RELATED TASK",
+                        "LINK ID", "RELATIONSHIP"
+                    );
+                    let sep = format!(
+                        "{:<10} {:<14} {}",
+                        "\u{2500}".repeat(8),
+                        "\u{2500}".repeat(12),
+                        "\u{2500}".repeat(33)
+                    );
+                    println!("{sep}");
+                    for (link_id, link_type, related_id, title) in &links {
+                        let short_link = if link_id.len() > 8 {
+                            &link_id[..8]
+                        } else {
+                            link_id
+                        };
+                        let short_task = if related_id.len() > 8 {
+                            &related_id[..8]
+                        } else {
+                            related_id
+                        };
+                        println!(
+                            "{:<10} {:<14} {}  ({})",
+                            short_link, link_type, short_task, title
+                        );
+                    }
+                    println!("\n{} link(s).", links.len());
+                }
+            }
+        },
     }
 }

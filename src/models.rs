@@ -5,6 +5,65 @@ use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkType {
+    Parent,
+    Child,
+    BlockedBy,
+    Blocks,
+    RelatedTo,
+}
+
+impl fmt::Display for LinkType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Parent => write!(f, "parent"),
+            Self::Child => write!(f, "child"),
+            Self::BlockedBy => write!(f, "blocked_by"),
+            Self::Blocks => write!(f, "blocks"),
+            Self::RelatedTo => write!(f, "related_to"),
+        }
+    }
+}
+
+impl FromStr for LinkType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "parent" => Ok(Self::Parent),
+            "child" => Ok(Self::Child),
+            "blocked_by" | "blockedby" => Ok(Self::BlockedBy),
+            "blocks" => Ok(Self::Blocks),
+            "related_to" | "relatedto" => Ok(Self::RelatedTo),
+            _ => Err(format!("unknown link type: {s}")),
+        }
+    }
+}
+
+impl LinkType {
+    pub fn inverse(&self) -> LinkType {
+        match self {
+            Self::Parent => Self::Child,
+            Self::Child => Self::Parent,
+            Self::BlockedBy => Self::Blocks,
+            Self::Blocks => Self::BlockedBy,
+            Self::RelatedTo => Self::RelatedTo,
+        }
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskLink {
+    pub id: String,
+    pub source_id: String,
+    pub target_id: String,
+    pub link_type: LinkType,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum TaskStatus {
     Open,

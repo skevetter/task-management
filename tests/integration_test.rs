@@ -81,7 +81,9 @@ fn list_all_tasks() {
     db.create_task("Task C", None, TaskPriority::Medium, None, &[], None)
         .unwrap();
 
-    let all = db.list_tasks(None, None, None, None, None).unwrap();
+    let all = db
+        .list_tasks(None, None, None, None, None, None, None)
+        .unwrap();
     assert_eq!(all.len(), 3);
 }
 
@@ -97,13 +99,13 @@ fn list_tasks_filter_by_status() {
         .unwrap();
 
     let open = db
-        .list_tasks(Some(TaskStatus::Open), None, None, None, None)
+        .list_tasks(Some(TaskStatus::Open), None, None, None, None, None, None)
         .unwrap();
     assert_eq!(open.len(), 1);
     assert_eq!(open[0].title, "Another open");
 
     let done = db
-        .list_tasks(Some(TaskStatus::Done), None, None, None, None)
+        .list_tasks(Some(TaskStatus::Done), None, None, None, None, None, None)
         .unwrap();
     assert_eq!(done.len(), 1);
     assert_eq!(done[0].title, "Open task");
@@ -120,7 +122,7 @@ fn list_tasks_filter_by_priority() {
         .unwrap();
 
     let high = db
-        .list_tasks(None, None, Some(TaskPriority::High), None, None)
+        .list_tasks(None, None, Some(TaskPriority::High), None, None, None, None)
         .unwrap();
     assert_eq!(high.len(), 2);
     for t in &high {
@@ -153,16 +155,18 @@ fn list_tasks_filter_by_tag() {
         .unwrap();
 
     let backend = db
-        .list_tasks(None, None, None, Some("backend"), None)
+        .list_tasks(None, None, None, Some("backend"), None, None, None)
         .unwrap();
     assert_eq!(backend.len(), 1);
     assert_eq!(backend[0].title, "Tagged");
 
-    let rust = db.list_tasks(None, None, None, Some("rust"), None).unwrap();
+    let rust = db
+        .list_tasks(None, None, None, Some("rust"), None, None, None)
+        .unwrap();
     assert_eq!(rust.len(), 1);
 
     let frontend = db
-        .list_tasks(None, None, None, Some("frontend"), None)
+        .list_tasks(None, None, None, Some("frontend"), None, None, None)
         .unwrap();
     assert_eq!(frontend.len(), 1);
     assert_eq!(frontend[0].title, "Other tag");
@@ -193,7 +197,7 @@ fn list_tasks_filter_by_assignee() {
         .unwrap();
 
     let alice = db
-        .list_tasks(None, Some("alice"), None, None, None)
+        .list_tasks(None, Some("alice"), None, None, None, None, None)
         .unwrap();
     assert_eq!(alice.len(), 1);
     assert_eq!(alice[0].title, "Alice task");
@@ -227,7 +231,7 @@ fn list_tasks_filter_by_parent() {
         .unwrap();
 
     let children = db
-        .list_tasks(None, None, None, None, Some(&parent.id))
+        .list_tasks(None, None, None, None, Some(&parent.id), None, None)
         .unwrap();
     assert_eq!(children.len(), 2);
     for child in &children {
@@ -294,6 +298,8 @@ fn list_tasks_combined_filters() {
             Some("alice"),
             Some(TaskPriority::High),
             Some("backend"),
+            None,
+            None,
             None,
         )
         .unwrap();
