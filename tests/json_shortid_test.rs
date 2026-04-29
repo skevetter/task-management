@@ -115,7 +115,7 @@ fn json_update_returns_updated_task() {
 
     assert_eq!(val["id"].as_str().unwrap(), task_id);
     assert_eq!(val["title"].as_str().unwrap(), "Updated title");
-    assert_eq!(val["status"].as_str().unwrap(), "inprogress");
+    assert_eq!(val["status"].as_str().unwrap(), "in-progress");
 }
 
 #[test]
