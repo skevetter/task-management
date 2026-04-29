@@ -80,9 +80,13 @@ enum Commands {
         assignee: Option<String>,
         #[arg(long = "tag")]
         tags: Vec<String>,
+        #[arg(long)]
+        actor: Option<String>,
     },
     Close {
         id: String,
+        #[arg(long)]
+        actor: Option<String>,
     },
     List {
         #[arg(long, value_enum)]
@@ -254,6 +258,7 @@ fn main() {
             priority,
             assignee,
             tags,
+            actor,
         } => {
             let id = resolve(&id);
             let tags_opt = if tags.is_empty() {
@@ -270,6 +275,7 @@ fn main() {
                     priority,
                     assignee.as_deref(),
                     tags_opt,
+                    actor.as_deref(),
                 )
                 .unwrap_or_else(|e| {
                     eprintln!("Failed to update task: {e}");
@@ -289,9 +295,9 @@ fn main() {
                 }
             }
         }
-        Commands::Close { id } => {
+        Commands::Close { id, actor } => {
             let id = resolve(&id);
-            let task = db.close_task(&id).unwrap_or_else(|e| {
+            let task = db.close_task(&id, actor.as_deref()).unwrap_or_else(|e| {
                 eprintln!("Failed to close task: {e}");
                 std::process::exit(1);
             });
