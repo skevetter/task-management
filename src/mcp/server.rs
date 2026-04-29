@@ -33,11 +33,15 @@ impl TaskMcpServer {
         params_actor.or_else(|| self.default_actor.clone())
     }
 
-    fn resolve_id(&self, prefix: &str) -> Result<String, ErrorData> {
+    fn resolve_namespace<'a>(&'a self, params_ns: &'a Option<String>) -> Option<&'a str> {
+        params_ns.as_deref().or(self.default_namespace.as_deref())
+    }
+
+    fn resolve_id(&self, prefix: &str, namespace: Option<&str>) -> Result<String, ErrorData> {
         self.db
             .lock()
             .unwrap()
-            .resolve_short_id(prefix, None)
+            .resolve_short_id(prefix, namespace)
             .map_err(|e| ErrorData::invalid_params(e, None))
     }
 }
@@ -58,6 +62,7 @@ impl TaskMcpServer {
         &self,
         Parameters(params): Parameters<CreateTaskParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        let ns = self.resolve_namespace(&params.namespace);
         let actor = self.resolve_actor(params.actor);
         let priority = params
             .priority
@@ -77,7 +82,7 @@ impl TaskMcpServer {
                 &params.tags.unwrap_or_default(),
                 params.parent.as_deref(),
                 actor.as_deref(),
-                "default",
+                ns.unwrap_or("default"),
             )
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
@@ -91,7 +96,8 @@ impl TaskMcpServer {
         &self,
         Parameters(params): Parameters<UpdateTaskParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let id = self.resolve_id(&params.id)?;
+        let ns = self.resolve_namespace(&params.namespace);
+        let id = self.resolve_id(&params.id, ns)?;
         let _actor = self.resolve_actor(params.actor);
 
         let status = params
@@ -135,7 +141,8 @@ impl TaskMcpServer {
         &self,
         Parameters(params): Parameters<CloseTaskParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let id = self.resolve_id(&params.id)?;
+        let ns = self.resolve_namespace(&params.namespace);
+        let id = self.resolve_id(&params.id, ns)?;
         let _actor = self.resolve_actor(params.actor);
 
         let db = self.db.lock().unwrap();
@@ -154,6 +161,7 @@ impl TaskMcpServer {
         &self,
         Parameters(params): Parameters<ListTasksParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        let ns = self.resolve_namespace(&params.namespace);
         let status = params
             .status
             .as_deref()
@@ -168,6 +176,9 @@ impl TaskMcpServer {
             .transpose()
             .map_err(|e| ErrorData::invalid_params(e, None))?;
 
+        let limit = params.limit.unwrap_or(50);
+        let offset = params.offset.unwrap_or(0);
+
         let db = self.db.lock().unwrap();
         let result = db
             .list_tasks(
@@ -178,14 +189,14 @@ impl TaskMcpServer {
                 params.parent.as_deref(),
                 params.blocked_by.as_deref(),
                 params.blocks.as_deref(),
-                None,
-                50,
-                0,
+                ns,
+                limit,
+                offset,
             )
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
         Ok(CallToolResult::success(vec![Content::text(
-            serde_json::to_string(&result.tasks).unwrap(),
+            serde_json::to_string(&result).unwrap(),
         )]))
     }
 
@@ -194,7 +205,8 @@ impl TaskMcpServer {
         &self,
         Parameters(params): Parameters<ShowTaskParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let id = self.resolve_id(&params.id)?;
+        let ns = self.resolve_namespace(&params.namespace);
+        let id = self.resolve_id(&params.id, ns)?;
 
         let db = self.db.lock().unwrap();
         let task = db
@@ -241,7 +253,8 @@ impl TaskMcpServer {
         &self,
         Parameters(params): Parameters<AddNoteParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let id = self.resolve_id(&params.id)?;
+        let ns = self.resolve_namespace(&params.namespace);
+        let id = self.resolve_id(&params.id, ns)?;
 
         let db = self.db.lock().unwrap();
         let note = db
@@ -258,7 +271,8 @@ impl TaskMcpServer {
         &self,
         Parameters(params): Parameters<TaskHistoryParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let id = self.resolve_id(&params.id)?;
+        let ns = self.resolve_namespace(&params.namespace);
+        let id = self.resolve_id(&params.id, ns)?;
 
         let db = self.db.lock().unwrap();
         db.get_task(&id)
@@ -279,8 +293,9 @@ impl TaskMcpServer {
         &self,
         Parameters(params): Parameters<LinkTasksParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let source_id = self.resolve_id(&params.source_id)?;
-        let target_id = self.resolve_id(&params.target_id)?;
+        let ns = self.resolve_namespace(&params.namespace);
+        let source_id = self.resolve_id(&params.source_id, ns)?;
+        let target_id = self.resolve_id(&params.target_id, ns)?;
         let link_type: LinkType = params
             .relationship
             .parse()
@@ -315,7 +330,8 @@ impl TaskMcpServer {
         &self,
         Parameters(params): Parameters<ListLinksParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let id = self.resolve_id(&params.id)?;
+        let ns = self.resolve_namespace(&params.namespace);
+        let id = self.resolve_id(&params.id, ns)?;
 
         let db = self.db.lock().unwrap();
         let links_raw = db

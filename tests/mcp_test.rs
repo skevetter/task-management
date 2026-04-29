@@ -133,8 +133,12 @@ fn test_list_tasks() {
     let resp = client.call_tool("list_tasks", serde_json::json!({}));
     let tasks = extract_content(&resp);
 
-    assert!(tasks.is_array());
-    assert_eq!(tasks.as_array().unwrap().len(), 2);
+    assert!(tasks.is_object());
+    let tasks_arr = tasks["tasks"].as_array().unwrap();
+    assert_eq!(tasks_arr.len(), 2);
+    assert_eq!(tasks["total"].as_i64().unwrap(), 2);
+    assert_eq!(tasks["limit"].as_i64().unwrap(), 50);
+    assert_eq!(tasks["offset"].as_i64().unwrap(), 0);
 }
 
 #[test]
@@ -335,14 +339,14 @@ fn test_list_tasks_with_filter() {
     );
 
     let resp = client.call_tool("list_tasks", serde_json::json!({"status": "open"}));
-    let tasks = extract_content(&resp);
-    let tasks_arr = tasks.as_array().unwrap();
+    let result = extract_content(&resp);
+    let tasks_arr = result["tasks"].as_array().unwrap();
     assert_eq!(tasks_arr.len(), 1);
     assert_eq!(tasks_arr[0]["title"].as_str().unwrap(), "Another open");
 
     let resp2 = client.call_tool("list_tasks", serde_json::json!({"status": "in-progress"}));
-    let tasks2 = extract_content(&resp2);
-    let tasks2_arr = tasks2.as_array().unwrap();
+    let result2 = extract_content(&resp2);
+    let tasks2_arr = result2["tasks"].as_array().unwrap();
     assert_eq!(tasks2_arr.len(), 1);
     assert_eq!(tasks2_arr[0]["title"].as_str().unwrap(), "Open task");
 }

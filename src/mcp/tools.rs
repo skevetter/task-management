@@ -42,6 +42,8 @@ pub struct ListTasksParams {
     pub blocked_by: Option<String>,
     pub blocks: Option<String>,
     pub namespace: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
