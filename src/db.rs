@@ -364,7 +364,7 @@ impl Database {
             id,
             None,
             None,
-            Some(TaskStatus::Closed),
+            Some(TaskStatus::Cancelled),
             None,
             None,
             None,

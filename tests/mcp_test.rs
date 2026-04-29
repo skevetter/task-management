@@ -191,7 +191,7 @@ fn test_close_task() {
     let resp = client.call_tool("close_task", serde_json::json!({"id": task_id}));
     let closed = extract_content(&resp);
 
-    assert_eq!(closed["status"].as_str().unwrap(), "closed");
+    assert_eq!(closed["status"].as_str().unwrap(), "cancelled");
     assert_eq!(closed["id"].as_str().unwrap(), task_id);
 }
 

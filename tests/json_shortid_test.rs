@@ -135,7 +135,7 @@ fn json_close_returns_closed_task() {
     let val: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
 
     assert_eq!(val["id"].as_str().unwrap(), task_id);
-    assert_eq!(val["status"].as_str().unwrap(), "closed");
+    assert_eq!(val["status"].as_str().unwrap(), "cancelled");
 }
 
 #[test]
@@ -344,7 +344,7 @@ fn short_id_prefix_works_with_close() {
         .args(["close", prefix])
         .assert()
         .success()
-        .stdout(predicate::str::contains("closed"));
+        .stdout(predicate::str::contains("cancelled"));
 }
 
 #[test]

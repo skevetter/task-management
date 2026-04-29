@@ -64,7 +64,7 @@ pub enum TaskStatus {
     InProgress,
     Blocked,
     Done,
-    Closed,
+    Cancelled,
 }
 
 impl fmt::Display for TaskStatus {
@@ -74,7 +74,7 @@ impl fmt::Display for TaskStatus {
             Self::InProgress => write!(f, "in-progress"),
             Self::Blocked => write!(f, "blocked"),
             Self::Done => write!(f, "done"),
-            Self::Closed => write!(f, "closed"),
+            Self::Cancelled => write!(f, "cancelled"),
         }
     }
 }
@@ -88,7 +88,7 @@ impl FromStr for TaskStatus {
             "in-progress" | "inprogress" | "in_progress" => Ok(Self::InProgress),
             "blocked" => Ok(Self::Blocked),
             "done" => Ok(Self::Done),
-            "closed" => Ok(Self::Closed),
+            "cancelled" | "closed" => Ok(Self::Cancelled),
             _ => Err(format!("unknown status: {s}")),
         }
     }

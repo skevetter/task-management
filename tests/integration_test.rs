@@ -89,10 +89,10 @@ fn close_task() {
         .close_task(&task.id, None)
         .unwrap()
         .expect("task should exist");
-    assert_eq!(closed.status, TaskStatus::Closed);
+    assert_eq!(closed.status, TaskStatus::Cancelled);
 
     let fetched = db.get_task(&task.id).unwrap().expect("task should exist");
-    assert_eq!(fetched.status, TaskStatus::Closed);
+    assert_eq!(fetched.status, TaskStatus::Cancelled);
 }
 
 #[test]
