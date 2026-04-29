@@ -14,6 +14,14 @@ Or build from source:
 cargo build --release
 ```
 
+## What's New in v0.5.0
+
+- **Namespace isolation fix**: Namespace filtering is now applied consistently across all DB queries, preventing tasks from leaking across namespaces.
+- **`unlink_tasks` MCP tool**: Remove task relationships directly via MCP without the CLI.
+- **Cancelled status**: Tasks can now be set to `cancelled` (alias: `closed`). Cancelled tasks are excluded from open listings by default.
+- **Bulk close**: Close multiple tasks in one command with `close --all` or `close --tag <tag>` via CLI and MCP.
+- **Task templates**: Create reusable task templates and instantiate them via `template apply`. Templates support all task fields and are stored per-namespace.
+
 ## Database Path
 
 Resolved in order:
@@ -52,11 +60,17 @@ task-management list --namespace my-project --limit 5
 | `show <ID> [-n NS]` | Show task details and links |
 | `update <ID> [--status S] [--priority P] [--assignee A] [--tag T] [-n NS]` | Update a task |
 | `close <ID> [-n NS]` | Close a task |
+| `close --all [-n NS]` | Bulk close all open tasks |
+| `close --tag <TAG> [-n NS]` | Bulk close tasks by tag |
 | `note <ID> "message" [--author A] [-n NS]` | Add a note |
 | `history <ID> [-n NS]` | View task timeline |
 | `link add <ID> <REL> <TARGET> [-n NS]` | Add a relationship |
 | `link remove <LINK_ID> [-n NS]` | Remove a relationship |
 | `link list <ID> [-n NS]` | List task relationships |
+| `template create --name "..." [--title T] [--priority P] [--tag T] [-n NS]` | Create a task template |
+| `template list [-n NS]` | List templates |
+| `template apply <TEMPLATE_ID> [-n NS]` | Instantiate a template as a task |
+| `template delete <TEMPLATE_ID> [-n NS]` | Delete a template |
 
 ## Relationship Types
 
@@ -141,11 +155,17 @@ Cursor (`.cursor/mcp.json`):
 | show_task | Show task detail with notes, timeline, links |
 | update_task | Update task fields |
 | close_task | Close a task |
+| bulk_close_tasks | Close multiple tasks by filter |
 | add_note | Add a note to a task |
 | task_history | Get task timeline events |
 | link_tasks | Create a link between tasks |
+| unlink_tasks | Remove a link between tasks |
 | list_links | List links for a task |
+| create_template | Create a task template |
+| list_templates | List available templates |
+| apply_template | Instantiate a template as a task |
+| delete_template | Delete a template |
 
-All 9 tools accept a `namespace` parameter (defaults to `"default"`). The `list_tasks` tool also accepts `limit` and `offset` for pagination.
+All tools accept a `namespace` parameter (defaults to `"default"`). The `list_tasks` tool also accepts `limit` and `offset` for pagination.
 
 Tool parameters are auto-discovered via the MCP protocol.
