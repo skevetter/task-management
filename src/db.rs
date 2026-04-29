@@ -282,6 +282,7 @@ impl Database {
         priority: Option<TaskPriority>,
         assignee: Option<&str>,
         tags: Option<&[String]>,
+        actor: Option<&str>,
     ) -> Result<Option<Task>> {
         let existing = self.get_task(id)?;
         let Some(task) = existing else {
@@ -318,7 +319,7 @@ impl Database {
                 "status_changed",
                 Some(&task.status.to_string()),
                 &new_status.to_string(),
-                None,
+                actor,
                 &now,
             )?;
         }
@@ -328,7 +329,7 @@ impl Database {
                 "assignee_changed",
                 task.assignee.as_deref(),
                 new_assignee.unwrap_or(""),
-                None,
+                actor,
                 &now,
             )?;
         }
@@ -338,7 +339,7 @@ impl Database {
                 "priority_changed",
                 Some(&task.priority.to_string()),
                 &new_priority.to_string(),
-                None,
+                actor,
                 &now,
             )?;
         }
@@ -358,8 +359,17 @@ impl Database {
         }))
     }
 
-    pub fn close_task(&self, id: &str) -> Result<Option<Task>> {
-        self.update_task(id, None, None, Some(TaskStatus::Closed), None, None, None)
+    pub fn close_task(&self, id: &str, actor: Option<&str>) -> Result<Option<Task>> {
+        self.update_task(
+            id,
+            None,
+            None,
+            Some(TaskStatus::Closed),
+            None,
+            None,
+            None,
+            actor,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]

@@ -60,6 +60,7 @@ fn update_task_status() {
             None,
             None,
             None,
+            None,
         )
         .unwrap()
         .expect("task should exist");
@@ -84,7 +85,10 @@ fn close_task() {
             "default",
         )
         .unwrap();
-    let closed = db.close_task(&task.id).unwrap().expect("task should exist");
+    let closed = db
+        .close_task(&task.id, None)
+        .unwrap()
+        .expect("task should exist");
     assert_eq!(closed.status, TaskStatus::Closed);
 
     let fetched = db.get_task(&task.id).unwrap().expect("task should exist");
@@ -161,8 +165,17 @@ fn list_tasks_filter_by_status() {
         "default",
     )
     .unwrap();
-    db.update_task(&t1.id, None, None, Some(TaskStatus::Done), None, None, None)
-        .unwrap();
+    db.update_task(
+        &t1.id,
+        None,
+        None,
+        Some(TaskStatus::Done),
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
 
     let open = db
         .list_tasks(
@@ -824,4 +837,70 @@ fn test_default_namespace() {
     let val: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
 
     assert_eq!(val["namespace"].as_str().unwrap(), "default");
+}
+
+// --- Actor flag and --version tests ---
+
+#[test]
+fn update_with_actor_flag() {
+    let tmp = NamedTempFile::new().unwrap();
+    let db_path = tmp.path().to_str().unwrap();
+    let task_id = create_task_via_cli(db_path, "Actor update test");
+
+    cli_cmd(db_path)
+        .args([
+            "update",
+            &task_id,
+            "--status",
+            "in-progress",
+            "--actor",
+            "agent-x",
+        ])
+        .assert()
+        .success();
+
+    let history_output = cli_cmd(db_path)
+        .args(["--json", "history", &task_id])
+        .output()
+        .unwrap();
+    assert!(history_output.status.success());
+    let events: Vec<serde_json::Value> = serde_json::from_slice(&history_output.stdout).unwrap();
+    let status_event = events
+        .iter()
+        .find(|e| e["event_type"].as_str() == Some("status_changed"))
+        .expect("should have status_changed event");
+    assert_eq!(status_event["actor"].as_str(), Some("agent-x"));
+}
+
+#[test]
+fn close_with_actor_flag() {
+    let tmp = NamedTempFile::new().unwrap();
+    let db_path = tmp.path().to_str().unwrap();
+    let task_id = create_task_via_cli(db_path, "Actor close test");
+
+    cli_cmd(db_path)
+        .args(["close", &task_id, "--actor", "agent-x"])
+        .assert()
+        .success();
+
+    let history_output = cli_cmd(db_path)
+        .args(["--json", "history", &task_id])
+        .output()
+        .unwrap();
+    assert!(history_output.status.success());
+    let events: Vec<serde_json::Value> = serde_json::from_slice(&history_output.stdout).unwrap();
+    let status_event = events
+        .iter()
+        .find(|e| e["event_type"].as_str() == Some("status_changed"))
+        .expect("should have status_changed event");
+    assert_eq!(status_event["actor"].as_str(), Some("agent-x"));
+}
+
+#[test]
+fn version_flag() {
+    let mut cmd = Command::cargo_bin("task-management").unwrap();
+    cmd.arg("--version")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("0.4.0"));
 }
