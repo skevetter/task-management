@@ -193,6 +193,19 @@ pub struct TaskLink {
     pub related_task_title: String,
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskTemplate {
+    pub id: String,
+    pub name: String,
+    pub title_pattern: String,
+    pub default_priority: Option<String>,
+    pub default_status: Option<String>,
+    pub default_tags: Option<Vec<String>>,
+    pub builtin: bool,
+    pub created_at: String,
+}
+
 impl fmt::Display for Task {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "ID:          {}", self.id)?;

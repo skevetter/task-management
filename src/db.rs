@@ -3,7 +3,7 @@ use rusqlite::{Connection, Result, params};
 use uuid::Uuid;
 
 use crate::models::{
-    LinkType, ListResult, Task, TaskNote, TaskPriority, TaskStatus, TimelineEvent,
+    LinkType, ListResult, Task, TaskNote, TaskPriority, TaskStatus, TaskTemplate, TimelineEvent,
 };
 
 pub struct Database {
@@ -112,6 +112,39 @@ impl Database {
                  VALUES (3, datetime('now'));
                  COMMIT;",
             )?;
+        }
+
+        if max_version < 4 {
+            conn.execute_batch(
+                "BEGIN IMMEDIATE;
+                 CREATE TABLE IF NOT EXISTS task_templates (
+                     id TEXT PRIMARY KEY,
+                     name TEXT UNIQUE NOT NULL,
+                     title_pattern TEXT NOT NULL,
+                     default_priority TEXT,
+                     default_status TEXT,
+                     default_tags TEXT,
+                     builtin INTEGER NOT NULL DEFAULT 0,
+                     created_at TEXT NOT NULL
+                 );
+                 INSERT OR IGNORE INTO schema_versions (version, applied_at)
+                 VALUES (4, datetime('now'));
+                 COMMIT;",
+            )?;
+
+            let seeds: &[(&str, &str, &str, &str)] = &[
+                ("bug-report", "[Bug] {title}", "high", "open"),
+                ("feature-request", "[Feature] {title}", "medium", "open"),
+                ("investigation", "[Investigation] {title}", "medium", "open"),
+            ];
+            for (name, pattern, priority, status) in seeds {
+                let id = Uuid::new_v4().to_string();
+                conn.execute(
+                    "INSERT OR IGNORE INTO task_templates (id, name, title_pattern, default_priority, default_status, default_tags, builtin, created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, NULL, 1, datetime('now'))",
+                    params![id, name, pattern, priority, status],
+                )?;
+            }
         }
 
         Ok(Self { conn })
@@ -762,5 +795,137 @@ impl Database {
             links.push((link_id, effective_type, related_id, title));
         }
         Ok(links)
+    }
+
+    #[allow(dead_code)]
+    pub fn list_templates(&self) -> Result<Vec<TaskTemplate>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, title_pattern, default_priority, default_status, default_tags, builtin, created_at
+             FROM task_templates ORDER BY name",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let tags_str: Option<String> = row.get(5)?;
+            Ok(TaskTemplate {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                title_pattern: row.get(2)?,
+                default_priority: row.get(3)?,
+                default_status: row.get(4)?,
+                default_tags: tags_str.and_then(|s| serde_json::from_str(&s).ok()),
+                builtin: row.get::<_, i32>(6)? != 0,
+                created_at: row.get(7)?,
+            })
+        })?;
+        let mut templates = Vec::new();
+        for row in rows {
+            templates.push(row?);
+        }
+        Ok(templates)
+    }
+
+    #[allow(dead_code)]
+    pub fn get_template(&self, name: &str) -> Result<Option<TaskTemplate>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, title_pattern, default_priority, default_status, default_tags, builtin, created_at
+             FROM task_templates WHERE name = ?1",
+        )?;
+        let mut rows = stmt.query_map(params![name], |row| {
+            let tags_str: Option<String> = row.get(5)?;
+            Ok(TaskTemplate {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                title_pattern: row.get(2)?,
+                default_priority: row.get(3)?,
+                default_status: row.get(4)?,
+                default_tags: tags_str.and_then(|s| serde_json::from_str(&s).ok()),
+                builtin: row.get::<_, i32>(6)? != 0,
+                created_at: row.get(7)?,
+            })
+        })?;
+        match rows.next() {
+            Some(Ok(t)) => Ok(Some(t)),
+            Some(Err(e)) => Err(e),
+            None => Ok(None),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn create_template(
+        &self,
+        name: &str,
+        title_pattern: &str,
+        default_priority: Option<&str>,
+        default_status: Option<&str>,
+        default_tags: Option<&[String]>,
+    ) -> Result<TaskTemplate> {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+        let tags_json =
+            default_tags.map(|t| serde_json::to_string(t).unwrap_or_else(|_| "[]".to_string()));
+        self.conn.execute(
+            "INSERT INTO task_templates (id, name, title_pattern, default_priority, default_status, default_tags, builtin, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7)",
+            params![id, name, title_pattern, default_priority, default_status, tags_json, now],
+        )?;
+        Ok(TaskTemplate {
+            id,
+            name: name.to_string(),
+            title_pattern: title_pattern.to_string(),
+            default_priority: default_priority.map(String::from),
+            default_status: default_status.map(String::from),
+            default_tags: default_tags.map(|t| t.to_vec()),
+            builtin: false,
+            created_at: now,
+        })
+    }
+
+    #[allow(dead_code)]
+    pub fn delete_template(&self, name: &str) -> std::result::Result<(), String> {
+        let tmpl = self.get_template(name).map_err(|e| e.to_string())?;
+        let Some(tmpl) = tmpl else {
+            return Err(format!("template '{name}' not found"));
+        };
+        if tmpl.builtin {
+            return Err(format!("cannot delete builtin template '{name}'"));
+        }
+        self.conn
+            .execute("DELETE FROM task_templates WHERE name = ?1", params![name])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub fn create_task_from_template(
+        &self,
+        template_name: &str,
+        title: &str,
+        namespace: &str,
+        actor: Option<&str>,
+    ) -> std::result::Result<Task, String> {
+        let tmpl = self
+            .get_template(template_name)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("template '{template_name}' not found"))?;
+
+        let final_title = tmpl.title_pattern.replace("{title}", title);
+        let priority = tmpl
+            .default_priority
+            .as_deref()
+            .unwrap_or("medium")
+            .parse::<TaskPriority>()
+            .unwrap_or(TaskPriority::Medium);
+        let tags = tmpl.default_tags.unwrap_or_default();
+
+        self.create_task(
+            &final_title,
+            None,
+            priority,
+            None,
+            &tags,
+            None,
+            actor,
+            namespace,
+        )
+        .map_err(|e| e.to_string())
     }
 }

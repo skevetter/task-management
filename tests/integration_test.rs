@@ -1010,3 +1010,58 @@ fn cli_bulk_close_with_status_filter() {
         .success()
         .stdout(predicate::str::contains("Closed 2 task(s)"));
 }
+
+// --- Task template tests ---
+
+#[test]
+fn list_templates_returns_builtins() {
+    let db = test_db();
+    let templates = db.list_templates().unwrap();
+    assert_eq!(templates.len(), 3);
+    let names: Vec<&str> = templates.iter().map(|t| t.name.as_str()).collect();
+    assert!(names.contains(&"bug-report"));
+    assert!(names.contains(&"feature-request"));
+    assert!(names.contains(&"investigation"));
+    for t in &templates {
+        assert!(t.builtin);
+    }
+}
+
+#[test]
+fn create_task_from_template_applies_pattern() {
+    let db = test_db();
+    let task = db
+        .create_task_from_template("bug-report", "Login fails", "default", Some("alice"))
+        .unwrap();
+    assert_eq!(task.title, "[Bug] Login fails");
+    assert_eq!(task.priority, TaskPriority::High);
+    assert_eq!(task.status, TaskStatus::Open);
+    assert_eq!(task.namespace, "default");
+}
+
+#[test]
+fn delete_template_blocks_builtin() {
+    let db = test_db();
+    let result = db.delete_template("bug-report");
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("cannot delete builtin"));
+}
+
+#[test]
+fn create_and_delete_user_template() {
+    let db = test_db();
+    let tmpl = db
+        .create_template("hotfix", "[Hotfix] {title}", Some("critical"), None, None)
+        .unwrap();
+    assert_eq!(tmpl.name, "hotfix");
+    assert!(!tmpl.builtin);
+
+    let task = db
+        .create_task_from_template("hotfix", "DB crash", "ops", None)
+        .unwrap();
+    assert_eq!(task.title, "[Hotfix] DB crash");
+    assert_eq!(task.priority, TaskPriority::Critical);
+
+    db.delete_template("hotfix").unwrap();
+    assert!(db.get_template("hotfix").unwrap().is_none());
+}
