@@ -12,7 +12,8 @@ impl Database {
     pub fn open(path: &str) -> Result<Self> {
         let conn = Connection::open(path)?;
         conn.execute_batch(
-            "PRAGMA foreign_keys = ON;
+            "PRAGMA journal_mode=WAL;
+             PRAGMA foreign_keys = ON;
 
              CREATE TABLE IF NOT EXISTS tasks (
                  id TEXT PRIMARY KEY,
