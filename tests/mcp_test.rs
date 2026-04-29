@@ -350,3 +350,70 @@ fn test_list_tasks_with_filter() {
     assert_eq!(tasks2_arr.len(), 1);
     assert_eq!(tasks2_arr[0]["title"].as_str().unwrap(), "Open task");
 }
+
+// --- Namespace and pagination MCP tests ---
+
+#[test]
+fn test_mcp_create_task_with_namespace() {
+    let tmp = NamedTempFile::new().unwrap();
+    let mut client = McpTestClient::new(tmp.path().to_str().unwrap());
+
+    let resp = client.call_tool(
+        "create_task",
+        serde_json::json!({"title": "NS task", "namespace": "ns-a"}),
+    );
+    let task = extract_content(&resp);
+
+    assert_eq!(task["title"].as_str().unwrap(), "NS task");
+    assert_eq!(task["namespace"].as_str().unwrap(), "ns-a");
+}
+
+#[test]
+fn test_mcp_list_tasks_with_namespace() {
+    let tmp = NamedTempFile::new().unwrap();
+    let mut client = McpTestClient::new(tmp.path().to_str().unwrap());
+
+    client.call_tool(
+        "create_task",
+        serde_json::json!({"title": "A1", "namespace": "ns-a"}),
+    );
+    client.call_tool(
+        "create_task",
+        serde_json::json!({"title": "A2", "namespace": "ns-a"}),
+    );
+    client.call_tool(
+        "create_task",
+        serde_json::json!({"title": "B1", "namespace": "ns-b"}),
+    );
+
+    let resp = client.call_tool("list_tasks", serde_json::json!({"namespace": "ns-a"}));
+    let result = extract_content(&resp);
+
+    assert_eq!(result["total"].as_i64().unwrap(), 2);
+    let tasks = result["tasks"].as_array().unwrap();
+    assert_eq!(tasks.len(), 2);
+    for t in tasks {
+        assert_eq!(t["namespace"].as_str().unwrap(), "ns-a");
+    }
+}
+
+#[test]
+fn test_mcp_list_tasks_pagination() {
+    let tmp = NamedTempFile::new().unwrap();
+    let mut client = McpTestClient::new(tmp.path().to_str().unwrap());
+
+    for i in 0..5 {
+        client.call_tool(
+            "create_task",
+            serde_json::json!({"title": format!("Page {i}")}),
+        );
+    }
+
+    let resp = client.call_tool("list_tasks", serde_json::json!({"limit": 2, "offset": 0}));
+    let result = extract_content(&resp);
+
+    assert_eq!(result["total"].as_i64().unwrap(), 5);
+    assert_eq!(result["limit"].as_i64().unwrap(), 2);
+    assert_eq!(result["offset"].as_i64().unwrap(), 0);
+    assert_eq!(result["tasks"].as_array().unwrap().len(), 2);
+}

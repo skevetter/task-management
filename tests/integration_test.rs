@@ -751,3 +751,77 @@ fn auto_tracking_priority() {
         .stdout(predicate::str::contains("[priority_changed]"))
         .stdout(predicate::str::contains("critical"));
 }
+
+// --- Namespace scoping tests ---
+
+#[test]
+fn test_create_task_with_namespace() {
+    let tmp = NamedTempFile::new().unwrap();
+    let db_path = tmp.path().to_str().unwrap();
+
+    let output = cli_cmd(db_path)
+        .args([
+            "--namespace",
+            "ns-a",
+            "--json",
+            "create",
+            "--title",
+            "Namespaced task",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let val: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+
+    assert_eq!(val["title"].as_str().unwrap(), "Namespaced task");
+    assert_eq!(val["namespace"].as_str().unwrap(), "ns-a");
+}
+
+#[test]
+fn test_namespace_filtering_on_list() {
+    let tmp = NamedTempFile::new().unwrap();
+    let db_path = tmp.path().to_str().unwrap();
+
+    cli_cmd(db_path)
+        .args(["--namespace", "ns-a", "create", "--title", "A1"])
+        .assert()
+        .success();
+    cli_cmd(db_path)
+        .args(["--namespace", "ns-a", "create", "--title", "A2"])
+        .assert()
+        .success();
+    cli_cmd(db_path)
+        .args(["--namespace", "ns-b", "create", "--title", "B1"])
+        .assert()
+        .success();
+
+    let filtered = cli_cmd(db_path)
+        .args(["--namespace", "ns-a", "--json", "list"])
+        .output()
+        .unwrap();
+    assert!(filtered.status.success());
+    let val: serde_json::Value = serde_json::from_slice(&filtered.stdout).unwrap();
+    assert_eq!(val["tasks"].as_array().unwrap().len(), 2);
+    assert_eq!(val["total"].as_i64().unwrap(), 2);
+
+    let all = cli_cmd(db_path).args(["--json", "list"]).output().unwrap();
+    assert!(all.status.success());
+    let val_all: serde_json::Value = serde_json::from_slice(&all.stdout).unwrap();
+    assert_eq!(val_all["tasks"].as_array().unwrap().len(), 3);
+    assert_eq!(val_all["total"].as_i64().unwrap(), 3);
+}
+
+#[test]
+fn test_default_namespace() {
+    let tmp = NamedTempFile::new().unwrap();
+    let db_path = tmp.path().to_str().unwrap();
+
+    let output = cli_cmd(db_path)
+        .args(["--json", "create", "--title", "Default ns task"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let val: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+
+    assert_eq!(val["namespace"].as_str().unwrap(), "default");
+}

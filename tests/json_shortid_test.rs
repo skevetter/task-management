@@ -435,3 +435,84 @@ fn json_link_remove_returns_removed_id() {
     let rm_val: serde_json::Value = serde_json::from_slice(&rm_output.stdout).unwrap();
     assert_eq!(rm_val["removed"].as_str().unwrap(), link_id);
 }
+
+// --- Pagination envelope and namespace filter tests ---
+
+#[test]
+fn test_json_list_pagination_envelope() {
+    let tmp = NamedTempFile::new().unwrap();
+    let db = tmp.path().to_str().unwrap();
+
+    for i in 0..5 {
+        create_task_cli(db, &format!("Paginate {i}"));
+    }
+
+    let output = cli_cmd(db)
+        .args(["--json", "list", "--limit", "2", "--offset", "0"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let val: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+
+    assert_eq!(val["total"].as_i64().unwrap(), 5);
+    assert_eq!(val["limit"].as_i64().unwrap(), 2);
+    assert_eq!(val["offset"].as_i64().unwrap(), 0);
+    assert_eq!(val["tasks"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn test_json_list_pagination_offset() {
+    let tmp = NamedTempFile::new().unwrap();
+    let db = tmp.path().to_str().unwrap();
+
+    for i in 0..5 {
+        create_task_cli(db, &format!("Offset {i}"));
+    }
+
+    let output = cli_cmd(db)
+        .args(["--json", "list", "--limit", "2", "--offset", "2"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let val: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+
+    assert_eq!(val["total"].as_i64().unwrap(), 5);
+    assert_eq!(val["offset"].as_i64().unwrap(), 2);
+    assert_eq!(val["tasks"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn test_json_list_with_namespace_filter() {
+    let tmp = NamedTempFile::new().unwrap();
+    let db = tmp.path().to_str().unwrap();
+
+    for i in 0..3 {
+        cli_cmd(db)
+            .args([
+                "--namespace",
+                "ns-a",
+                "create",
+                "--title",
+                &format!("NsA {i}"),
+            ])
+            .assert()
+            .success();
+    }
+    cli_cmd(db)
+        .args(["--namespace", "ns-b", "create", "--title", "NsB 0"])
+        .assert()
+        .success();
+
+    let output = cli_cmd(db)
+        .args(["--namespace", "ns-a", "--json", "list"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let val: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+
+    assert_eq!(val["total"].as_i64().unwrap(), 3);
+    assert_eq!(val["tasks"].as_array().unwrap().len(), 3);
+    for task in val["tasks"].as_array().unwrap() {
+        assert_eq!(task["namespace"].as_str().unwrap(), "ns-a");
+    }
+}
