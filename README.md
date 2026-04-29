@@ -48,3 +48,22 @@ Resolved in order:
 | `related_to` | `related_to` | General association (symmetric) |
 
 Links are bidirectional — querying from either end shows the correct perspective.
+
+## JSON Output
+
+All subcommands accept `--json` for machine-readable output; human-readable is the default.
+
+```bash
+task-management list --status open --json
+task-management show <ID> --json
+```
+
+## Short ID Prefix
+
+Commands accepting a task ID also accept a unique 4+ character prefix.
+
+```bash
+task-management show a3f1
+```
+
+Ambiguous prefixes exit with an error listing all matches.
