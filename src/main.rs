@@ -92,9 +92,11 @@ enum Commands {
         actor: Option<String>,
     },
     Close {
-        id: String,
+        ids: Vec<String>,
         #[arg(long)]
         actor: Option<String>,
+        #[arg(long, value_enum)]
+        status: Option<TaskStatus>,
     },
     List {
         #[arg(long, value_enum)]
@@ -316,24 +318,48 @@ fn main() {
                 }
             }
         }
-        Commands::Close { id, actor } => {
-            let id = resolve(&id);
-            let task = db.close_task(&id, actor.as_deref()).unwrap_or_else(|e| {
-                eprintln!("Failed to close task: {e}");
-                std::process::exit(1);
-            });
-            match task {
-                Some(t) => {
-                    if json {
-                        println!("{}", serde_json::to_string(&t).unwrap());
-                    } else {
-                        println!("{t}");
-                    }
-                }
-                None => {
-                    eprintln!("Task not found: {id}");
+        Commands::Close { ids, actor, status } => {
+            let task_ids: Vec<String> = if ids.is_empty() {
+                let filter_status = status.unwrap_or_else(|| {
+                    eprintln!("Must provide task IDs or --status filter");
                     std::process::exit(1);
-                }
+                });
+                let ns = namespace.unwrap_or("default");
+                let result = db
+                    .list_tasks(
+                        Some(filter_status),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(ns),
+                        10000,
+                        0,
+                    )
+                    .unwrap_or_else(|e| {
+                        eprintln!("Failed to list tasks: {e}");
+                        std::process::exit(1);
+                    });
+                result.tasks.into_iter().map(|t| t.id).collect()
+            } else {
+                ids.iter().map(|id| resolve(id)).collect()
+            };
+            if task_ids.is_empty() {
+                println!("No tasks matched.");
+                return;
+            }
+            let closed = db
+                .bulk_close_tasks(&task_ids, actor.as_deref(), None)
+                .unwrap_or_else(|e| {
+                    eprintln!("Failed to close tasks: {e}");
+                    std::process::exit(1);
+                });
+            if json {
+                println!("{}", serde_json::to_string(&closed).unwrap());
+            } else {
+                println!("Closed {} task(s).", closed.len());
             }
         }
         Commands::List {

@@ -372,6 +372,53 @@ impl Database {
         )
     }
 
+    pub fn bulk_close_tasks(
+        &self,
+        ids: &[String],
+        actor: Option<&str>,
+        reason: Option<&str>,
+    ) -> Result<Vec<Task>> {
+        self.conn.execute("BEGIN IMMEDIATE", [])?;
+        let result = (|| -> Result<Vec<Task>> {
+            let mut closed = Vec::new();
+            for id in ids {
+                let task = self
+                    .get_task(id)?
+                    .ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+                let now = Utc::now().to_rfc3339();
+                self.conn.execute(
+                    "UPDATE tasks SET status = ?1, updated_at = ?2 WHERE id = ?3",
+                    params![TaskStatus::Cancelled.to_string(), now, id],
+                )?;
+                let new_value = reason.unwrap_or("cancelled");
+                self.insert_timeline_event(
+                    id,
+                    "status_changed",
+                    Some(&task.status.to_string()),
+                    new_value,
+                    actor,
+                    &now,
+                )?;
+                closed.push(Task {
+                    status: TaskStatus::Cancelled,
+                    updated_at: now,
+                    ..task
+                });
+            }
+            Ok(closed)
+        })();
+        match result {
+            Ok(tasks) => {
+                self.conn.execute("COMMIT", [])?;
+                Ok(tasks)
+            }
+            Err(e) => {
+                let _ = self.conn.execute("ROLLBACK", []);
+                Err(e)
+            }
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn list_tasks(
         &self,

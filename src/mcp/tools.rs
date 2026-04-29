@@ -80,6 +80,15 @@ pub struct UnlinkTasksParams {
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct BulkCloseTasksParams {
+    pub ids: Option<Vec<String>>,
+    pub status_filter: Option<String>,
+    pub namespace: Option<String>,
+    pub actor: Option<String>,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct ListLinksParams {
     pub id: String,
     pub namespace: Option<String>,

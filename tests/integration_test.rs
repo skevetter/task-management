@@ -904,3 +904,109 @@ fn version_flag() {
         .success()
         .stdout(predicate::str::contains("0.4.1"));
 }
+
+#[test]
+fn bulk_close_multiple_ids() {
+    let db = test_db();
+    let t1 = db
+        .create_task(
+            "Task 1",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
+        .unwrap();
+    let t2 = db
+        .create_task(
+            "Task 2",
+            None,
+            TaskPriority::Low,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
+        .unwrap();
+    let closed = db
+        .bulk_close_tasks(&[t1.id.clone(), t2.id.clone()], Some("bot"), None)
+        .unwrap();
+    assert_eq!(closed.len(), 2);
+    assert_eq!(closed[0].status, TaskStatus::Cancelled);
+    assert_eq!(closed[1].status, TaskStatus::Cancelled);
+}
+
+#[test]
+fn bulk_close_rollback_on_missing_id() {
+    let db = test_db();
+    let t1 = db
+        .create_task(
+            "Real task",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
+        .unwrap();
+    let result = db.bulk_close_tasks(
+        &[t1.id.clone(), "nonexistent-id-9999".to_string()],
+        None,
+        None,
+    );
+    assert!(result.is_err());
+    let fetched = db.get_task(&t1.id).unwrap().unwrap();
+    assert_eq!(fetched.status, TaskStatus::Open);
+}
+
+#[test]
+fn bulk_close_records_timeline_events() {
+    let db = test_db();
+    let t1 = db
+        .create_task(
+            "Timeline task",
+            None,
+            TaskPriority::High,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
+        .unwrap();
+    db.bulk_close_tasks(&[t1.id.clone()], Some("closer"), Some("done with it"))
+        .unwrap();
+    let events = db.get_timeline(&t1.id).unwrap();
+    let close_event = events
+        .iter()
+        .find(|e| e.event_type == "status_changed")
+        .unwrap();
+    assert_eq!(close_event.old_value.as_deref(), Some("open"));
+    assert_eq!(close_event.new_value, "done with it");
+    assert_eq!(close_event.actor.as_deref(), Some("closer"));
+}
+
+#[test]
+fn cli_bulk_close_with_status_filter() {
+    let tmp = NamedTempFile::new().unwrap();
+    let db_path = tmp.path().to_str().unwrap();
+    let mut cmd = Command::cargo_bin("task-management").unwrap();
+    cmd.args(["--db", db_path, "create", "--title", "Open one"])
+        .assert()
+        .success();
+    let mut cmd = Command::cargo_bin("task-management").unwrap();
+    cmd.args(["--db", db_path, "create", "--title", "Open two"])
+        .assert()
+        .success();
+    let mut cmd = Command::cargo_bin("task-management").unwrap();
+    cmd.args(["--db", db_path, "close", "--status", "open"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Closed 2 task(s)"));
+}

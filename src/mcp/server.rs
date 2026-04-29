@@ -359,6 +359,57 @@ impl TaskMcpServer {
         )]))
     }
 
+    #[tool(description = "Close multiple tasks at once by IDs or status filter")]
+    fn bulk_close_tasks(
+        &self,
+        Parameters(params): Parameters<BulkCloseTasksParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ns = self.resolve_namespace(&params.namespace);
+        let actor = self.resolve_actor(params.actor);
+
+        let task_ids: Vec<String> = if let Some(ids) = params.ids {
+            ids.iter()
+                .map(|id| self.resolve_id(id, ns))
+                .collect::<Result<Vec<_>, _>>()?
+        } else if let Some(filter) = &params.status_filter {
+            let status: TaskStatus = filter
+                .parse()
+                .map_err(|e: String| ErrorData::invalid_params(e, None))?;
+            let db = self.db.lock().unwrap();
+            let result = db
+                .list_tasks(
+                    Some(status),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    ns,
+                    10000,
+                    0,
+                )
+                .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+            drop(db);
+            result.tasks.into_iter().map(|t| t.id).collect()
+        } else {
+            return Err(ErrorData::invalid_params(
+                "Must provide ids or status_filter",
+                None,
+            ));
+        };
+
+        let db = self.db.lock().unwrap();
+        let closed = db
+            .bulk_close_tasks(&task_ids, actor.as_deref(), params.reason.as_deref())
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+
+        let closed_ids: Vec<&str> = closed.iter().map(|t| t.id.as_str()).collect();
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::json!({"closed": closed_ids}).to_string(),
+        )]))
+    }
+
     #[tool(description = "Remove a link between two tasks")]
     fn unlink_tasks(
         &self,
