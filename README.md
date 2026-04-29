@@ -90,6 +90,56 @@ task-management list --status open --priority high --assignee alice --tag backen
 task-management close <TASK_ID>
 ```
 
+### Add a note to a task
+
+```bash
+task-management note <TASK_ID> "<message>" [--author <name>]
+```
+
+Example:
+
+```bash
+task-management note a1b2c3d4-... "Blocked waiting for DB credentials" --author alice
+```
+
+Output:
+
+```
+Note ID:    e9f0a1b2-5c6d-7e8f-9012-3456789abcde
+Task:       a1b2c3d4-5678-90ab-cdef-1234567890ab
+Author:     alice
+Body:       Blocked waiting for DB credentials
+Created:    2026-04-28T23:00:00Z
+```
+
+### View task history
+
+```bash
+task-management history <TASK_ID>
+```
+
+Example output:
+
+```
+History for task a1b2c3d4-5678-90ab-cdef-1234567890ab
+──────────────────────────────────────────────────────
+2026-04-28T22:00:00Z  [created]          Implement auth
+2026-04-28T22:05:00Z  [status_changed]   open → in-progress
+2026-04-28T22:30:00Z  [assignee_changed] (none) → alice
+2026-04-28T23:00:00Z  [note_added]       Blocked waiting for DB credentials (by alice)
+──────────────────────────────────────────────────────
+4 event(s)
+```
+
+The timeline automatically tracks:
+- Task creation
+- Status changes
+- Assignee changes
+- Priority changes
+- Notes added
+
+These events are recorded automatically — no manual action needed.
+
 ## Task Fields
 
 | Field | Description |
