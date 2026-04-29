@@ -262,39 +262,34 @@ fn main() {
             } else {
                 for event in &events {
                     let description = match event.event_type.as_str() {
-                        "created" => event.new_value.clone().unwrap_or_default(),
+                        "created" => event.new_value.clone(),
                         "status_changed" | "priority_changed" => {
                             format!(
                                 "{} \u{2192} {}",
                                 event.old_value.as_deref().unwrap_or(""),
-                                event.new_value.as_deref().unwrap_or("")
+                                &event.new_value
                             )
                         }
                         "assignee_changed" => {
-                            format!(
-                                "{} \u{2192} {}",
-                                event
-                                    .old_value
-                                    .as_deref()
-                                    .filter(|s| !s.is_empty())
-                                    .unwrap_or("(none)"),
-                                event
-                                    .new_value
-                                    .as_deref()
-                                    .filter(|s| !s.is_empty())
-                                    .unwrap_or("(none)")
-                            )
+                            let old = event
+                                .old_value
+                                .as_deref()
+                                .filter(|s| !s.is_empty())
+                                .unwrap_or("(none)");
+                            let new = if event.new_value.is_empty() {
+                                "(none)"
+                            } else {
+                                &event.new_value
+                            };
+                            format!("{old} \u{2192} {new}")
                         }
-                        "note_added" => {
-                            let body = event.new_value.as_deref().unwrap_or("");
-                            match &event.actor {
-                                Some(actor) if !actor.is_empty() => {
-                                    format!("{body} (by {actor})")
-                                }
-                                _ => body.to_string(),
+                        "note_added" => match &event.actor {
+                            Some(actor) if !actor.is_empty() => {
+                                format!("{} (by {actor})", event.new_value)
                             }
-                        }
-                        _ => event.new_value.clone().unwrap_or_default(),
+                            _ => event.new_value.clone(),
+                        },
+                        _ => event.new_value.clone(),
                     };
                     println!(
                         "{:<20}  {:<18}  {}",
