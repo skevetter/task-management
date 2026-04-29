@@ -5,7 +5,7 @@ Rust CLI task manager with SQLite persistence, XDG-compliant paths, and task lin
 ## Install
 
 ```bash
-brew install --HEAD git@github.com:skevetter/task-management.git
+brew install skevetter/tap/task-management
 ```
 
 Or build from source:
