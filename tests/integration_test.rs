@@ -21,6 +21,7 @@ fn create_and_retrieve_task() {
             &[],
             None,
             None,
+            "default",
         )
         .unwrap();
     assert_eq!(task.title, "Buy milk");
@@ -37,7 +38,16 @@ fn create_and_retrieve_task() {
 fn update_task_status() {
     let db = test_db();
     let task = db
-        .create_task("Deploy v2", None, TaskPriority::High, None, &[], None, None)
+        .create_task(
+            "Deploy v2",
+            None,
+            TaskPriority::High,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
         .unwrap();
     assert_eq!(task.status, TaskStatus::Open);
 
@@ -71,6 +81,7 @@ fn close_task() {
             &[],
             None,
             None,
+            "default",
         )
         .unwrap();
     let closed = db.close_task(&task.id).unwrap().expect("task should exist");
@@ -83,16 +94,44 @@ fn close_task() {
 #[test]
 fn list_all_tasks() {
     let db = test_db();
-    db.create_task("Task A", None, TaskPriority::Low, None, &[], None, None)
-        .unwrap();
-    db.create_task("Task B", None, TaskPriority::High, None, &[], None, None)
-        .unwrap();
-    db.create_task("Task C", None, TaskPriority::Medium, None, &[], None, None)
-        .unwrap();
+    db.create_task(
+        "Task A",
+        None,
+        TaskPriority::Low,
+        None,
+        &[],
+        None,
+        None,
+        "default",
+    )
+    .unwrap();
+    db.create_task(
+        "Task B",
+        None,
+        TaskPriority::High,
+        None,
+        &[],
+        None,
+        None,
+        "default",
+    )
+    .unwrap();
+    db.create_task(
+        "Task C",
+        None,
+        TaskPriority::Medium,
+        None,
+        &[],
+        None,
+        None,
+        "default",
+    )
+    .unwrap();
 
     let all = db
-        .list_tasks(None, None, None, None, None, None, None)
-        .unwrap();
+        .list_tasks(None, None, None, None, None, None, None, None, 50, 0)
+        .unwrap()
+        .tasks;
     assert_eq!(all.len(), 3);
 }
 
@@ -108,6 +147,7 @@ fn list_tasks_filter_by_status() {
             &[],
             None,
             None,
+            "default",
         )
         .unwrap();
     db.create_task(
@@ -118,20 +158,45 @@ fn list_tasks_filter_by_status() {
         &[],
         None,
         None,
+        "default",
     )
     .unwrap();
     db.update_task(&t1.id, None, None, Some(TaskStatus::Done), None, None, None)
         .unwrap();
 
     let open = db
-        .list_tasks(Some(TaskStatus::Open), None, None, None, None, None, None)
-        .unwrap();
+        .list_tasks(
+            Some(TaskStatus::Open),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            50,
+            0,
+        )
+        .unwrap()
+        .tasks;
     assert_eq!(open.len(), 1);
     assert_eq!(open[0].title, "Another open");
 
     let done = db
-        .list_tasks(Some(TaskStatus::Done), None, None, None, None, None, None)
-        .unwrap();
+        .list_tasks(
+            Some(TaskStatus::Done),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            50,
+            0,
+        )
+        .unwrap()
+        .tasks;
     assert_eq!(done.len(), 1);
     assert_eq!(done[0].title, "Open task");
 }
@@ -139,10 +204,28 @@ fn list_tasks_filter_by_status() {
 #[test]
 fn list_tasks_filter_by_priority() {
     let db = test_db();
-    db.create_task("Low prio", None, TaskPriority::Low, None, &[], None, None)
-        .unwrap();
-    db.create_task("High prio", None, TaskPriority::High, None, &[], None, None)
-        .unwrap();
+    db.create_task(
+        "Low prio",
+        None,
+        TaskPriority::Low,
+        None,
+        &[],
+        None,
+        None,
+        "default",
+    )
+    .unwrap();
+    db.create_task(
+        "High prio",
+        None,
+        TaskPriority::High,
+        None,
+        &[],
+        None,
+        None,
+        "default",
+    )
+    .unwrap();
     db.create_task(
         "Another high",
         None,
@@ -151,12 +234,25 @@ fn list_tasks_filter_by_priority() {
         &[],
         None,
         None,
+        "default",
     )
     .unwrap();
 
     let high = db
-        .list_tasks(None, None, Some(TaskPriority::High), None, None, None, None)
-        .unwrap();
+        .list_tasks(
+            None,
+            None,
+            Some(TaskPriority::High),
+            None,
+            None,
+            None,
+            None,
+            None,
+            50,
+            0,
+        )
+        .unwrap()
+        .tasks;
     assert_eq!(high.len(), 2);
     for t in &high {
         assert_eq!(t.priority, TaskPriority::High);
@@ -174,6 +270,7 @@ fn list_tasks_filter_by_tag() {
         &["backend".into(), "rust".into()],
         None,
         None,
+        "default",
     )
     .unwrap();
     db.create_task(
@@ -184,25 +281,71 @@ fn list_tasks_filter_by_tag() {
         &["frontend".into()],
         None,
         None,
+        "default",
     )
     .unwrap();
-    db.create_task("No tags", None, TaskPriority::Medium, None, &[], None, None)
-        .unwrap();
+    db.create_task(
+        "No tags",
+        None,
+        TaskPriority::Medium,
+        None,
+        &[],
+        None,
+        None,
+        "default",
+    )
+    .unwrap();
 
     let backend = db
-        .list_tasks(None, None, None, Some("backend"), None, None, None)
-        .unwrap();
+        .list_tasks(
+            None,
+            None,
+            None,
+            Some("backend"),
+            None,
+            None,
+            None,
+            None,
+            50,
+            0,
+        )
+        .unwrap()
+        .tasks;
     assert_eq!(backend.len(), 1);
     assert_eq!(backend[0].title, "Tagged");
 
     let rust = db
-        .list_tasks(None, None, None, Some("rust"), None, None, None)
-        .unwrap();
+        .list_tasks(
+            None,
+            None,
+            None,
+            Some("rust"),
+            None,
+            None,
+            None,
+            None,
+            50,
+            0,
+        )
+        .unwrap()
+        .tasks;
     assert_eq!(rust.len(), 1);
 
     let frontend = db
-        .list_tasks(None, None, None, Some("frontend"), None, None, None)
-        .unwrap();
+        .list_tasks(
+            None,
+            None,
+            None,
+            Some("frontend"),
+            None,
+            None,
+            None,
+            None,
+            50,
+            0,
+        )
+        .unwrap()
+        .tasks;
     assert_eq!(frontend.len(), 1);
     assert_eq!(frontend[0].title, "Other tag");
 }
@@ -218,6 +361,7 @@ fn list_tasks_filter_by_assignee() {
         &[],
         None,
         None,
+        "default",
     )
     .unwrap();
     db.create_task(
@@ -228,6 +372,7 @@ fn list_tasks_filter_by_assignee() {
         &[],
         None,
         None,
+        "default",
     )
     .unwrap();
     db.create_task(
@@ -238,12 +383,25 @@ fn list_tasks_filter_by_assignee() {
         &[],
         None,
         None,
+        "default",
     )
     .unwrap();
 
     let alice = db
-        .list_tasks(None, Some("alice"), None, None, None, None, None)
-        .unwrap();
+        .list_tasks(
+            None,
+            Some("alice"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            50,
+            0,
+        )
+        .unwrap()
+        .tasks;
     assert_eq!(alice.len(), 1);
     assert_eq!(alice[0].title, "Alice task");
 }
@@ -252,7 +410,16 @@ fn list_tasks_filter_by_assignee() {
 fn list_tasks_filter_by_parent() {
     let db = test_db();
     let parent = db
-        .create_task("Parent", None, TaskPriority::High, None, &[], None, None)
+        .create_task(
+            "Parent",
+            None,
+            TaskPriority::High,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
         .unwrap();
     db.create_task(
         "Child 1",
@@ -262,6 +429,7 @@ fn list_tasks_filter_by_parent() {
         &[],
         Some(&parent.id),
         None,
+        "default",
     )
     .unwrap();
     db.create_task(
@@ -272,14 +440,36 @@ fn list_tasks_filter_by_parent() {
         &[],
         Some(&parent.id),
         None,
+        "default",
     )
     .unwrap();
-    db.create_task("Orphan", None, TaskPriority::Medium, None, &[], None, None)
-        .unwrap();
+    db.create_task(
+        "Orphan",
+        None,
+        TaskPriority::Medium,
+        None,
+        &[],
+        None,
+        None,
+        "default",
+    )
+    .unwrap();
 
     let children = db
-        .list_tasks(None, None, None, None, Some(&parent.id), None, None)
-        .unwrap();
+        .list_tasks(
+            None,
+            None,
+            None,
+            None,
+            Some(&parent.id),
+            None,
+            None,
+            None,
+            50,
+            0,
+        )
+        .unwrap()
+        .tasks;
     assert_eq!(children.len(), 2);
     for child in &children {
         assert_eq!(child.parent_task_id.as_deref(), Some(parent.id.as_str()));
@@ -290,7 +480,16 @@ fn list_tasks_filter_by_parent() {
 fn create_task_with_parent() {
     let db = test_db();
     let parent = db
-        .create_task("Epic", None, TaskPriority::High, None, &[], None, None)
+        .create_task(
+            "Epic",
+            None,
+            TaskPriority::High,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
         .unwrap();
     let child = db
         .create_task(
@@ -301,6 +500,7 @@ fn create_task_with_parent() {
             &[],
             Some(&parent.id),
             None,
+            "default",
         )
         .unwrap();
     assert_eq!(child.parent_task_id.as_deref(), Some(parent.id.as_str()));
@@ -320,6 +520,7 @@ fn list_tasks_combined_filters() {
         &["backend".into()],
         None,
         None,
+        "default",
     )
     .unwrap();
     db.create_task(
@@ -330,6 +531,7 @@ fn list_tasks_combined_filters() {
         &["backend".into()],
         None,
         None,
+        "default",
     )
     .unwrap();
     db.create_task(
@@ -340,6 +542,7 @@ fn list_tasks_combined_filters() {
         &["backend".into()],
         None,
         None,
+        "default",
     )
     .unwrap();
 
@@ -352,8 +555,12 @@ fn list_tasks_combined_filters() {
             None,
             None,
             None,
+            None,
+            50,
+            0,
         )
-        .unwrap();
+        .unwrap()
+        .tasks;
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].title, "Match");
 }

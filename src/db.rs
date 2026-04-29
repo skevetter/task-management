@@ -2,7 +2,9 @@ use chrono::Utc;
 use rusqlite::{Connection, Result, params};
 use uuid::Uuid;
 
-use crate::models::{LinkType, Task, TaskNote, TaskPriority, TaskStatus, TimelineEvent};
+use crate::models::{
+    LinkType, ListResult, Task, TaskNote, TaskPriority, TaskStatus, TimelineEvent,
+};
 
 pub struct Database {
     conn: Connection,
@@ -125,6 +127,7 @@ impl Database {
         tags: &[String],
         parent_task_id: Option<&str>,
         actor: Option<&str>,
+        namespace: &str,
     ) -> Result<Task> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
@@ -134,8 +137,8 @@ impl Database {
 
         let result = (|| -> Result<()> {
             self.conn.execute(
-                "INSERT INTO tasks (id, title, description, status, priority, assignee, tags, parent_task_id, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                "INSERT INTO tasks (id, title, description, status, priority, assignee, tags, parent_task_id, created_at, updated_at, namespace)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![
                     id,
                     title,
@@ -147,6 +150,7 @@ impl Database {
                     parent_task_id,
                     now,
                     now,
+                    namespace,
                 ],
             )?;
 
@@ -187,21 +191,37 @@ impl Database {
             parent_task_id: parent_task_id.map(String::from),
             created_at: now.clone(),
             updated_at: now,
-            namespace: "default".to_string(),
+            namespace: namespace.to_string(),
         })
     }
 
-    pub fn resolve_short_id(&self, prefix: &str) -> std::result::Result<String, String> {
+    pub fn resolve_short_id(
+        &self,
+        prefix: &str,
+        namespace: Option<&str>,
+    ) -> std::result::Result<String, String> {
         if prefix.len() < 4 {
             return Err("Prefix must be at least 4 characters".to_string());
         }
         let pattern = format!("{prefix}%");
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id FROM tasks WHERE id LIKE ?1")
-            .map_err(|e| e.to_string())?;
+        let (sql, params_vec): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = match namespace {
+            Some(ns) => (
+                "SELECT id FROM tasks WHERE id LIKE ?1 AND namespace = ?2",
+                vec![
+                    Box::new(pattern.clone()) as Box<dyn rusqlite::types::ToSql>,
+                    Box::new(ns.to_string()),
+                ],
+            ),
+            None => (
+                "SELECT id FROM tasks WHERE id LIKE ?1",
+                vec![Box::new(pattern.clone()) as Box<dyn rusqlite::types::ToSql>],
+            ),
+        };
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = self.conn.prepare(sql).map_err(|e| e.to_string())?;
         let ids: Vec<String> = stmt
-            .query_map(params![pattern], |row| row.get(0))
+            .query_map(params_refs.as_slice(), |row| row.get(0))
             .map_err(|e| e.to_string())?
             .filter_map(|r| r.ok())
             .collect();
@@ -352,7 +372,10 @@ impl Database {
         parent: Option<&str>,
         blocked_by: Option<&str>,
         blocks: Option<&str>,
-    ) -> Result<Vec<Task>> {
+        namespace: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<ListResult> {
         let mut conditions = Vec::new();
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
@@ -394,6 +417,21 @@ impl Database {
             );
             param_values.push(Box::new(bid.to_string()));
         }
+        if let Some(ns) = namespace {
+            conditions.push("t.namespace = ?".to_string());
+            param_values.push(Box::new(ns.to_string()));
+        }
+
+        let mut count_sql = "SELECT COUNT(*) FROM tasks t".to_string();
+        if !conditions.is_empty() {
+            count_sql.push_str(" WHERE ");
+            count_sql.push_str(&conditions.join(" AND "));
+        }
+        let count_params: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
+        let total: i64 = self
+            .conn
+            .query_row(&count_sql, count_params.as_slice(), |row| row.get(0))?;
 
         let mut sql =
             "SELECT t.id, t.title, t.description, t.status, t.priority, t.assignee, t.tags, t.parent_task_id, t.created_at, t.updated_at, t.namespace FROM tasks t"
@@ -402,7 +440,9 @@ impl Database {
             sql.push_str(" WHERE ");
             sql.push_str(&conditions.join(" AND "));
         }
-        sql.push_str(" ORDER BY t.created_at DESC");
+        sql.push_str(" ORDER BY t.created_at DESC LIMIT ? OFFSET ?");
+        param_values.push(Box::new(limit));
+        param_values.push(Box::new(offset));
 
         let params: Vec<&dyn rusqlite::types::ToSql> =
             param_values.iter().map(|p| p.as_ref()).collect();
@@ -433,7 +473,12 @@ impl Database {
         for row in rows {
             tasks.push(row?);
         }
-        Ok(tasks)
+        Ok(ListResult {
+            tasks,
+            total,
+            limit,
+            offset,
+        })
     }
 
     fn insert_timeline_event(

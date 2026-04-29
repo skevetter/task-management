@@ -37,7 +37,7 @@ impl TaskMcpServer {
         self.db
             .lock()
             .unwrap()
-            .resolve_short_id(prefix)
+            .resolve_short_id(prefix, None)
             .map_err(|e| ErrorData::invalid_params(e, None))
     }
 }
@@ -77,6 +77,7 @@ impl TaskMcpServer {
                 &params.tags.unwrap_or_default(),
                 params.parent.as_deref(),
                 actor.as_deref(),
+                "default",
             )
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
@@ -168,7 +169,7 @@ impl TaskMcpServer {
             .map_err(|e| ErrorData::invalid_params(e, None))?;
 
         let db = self.db.lock().unwrap();
-        let tasks = db
+        let result = db
             .list_tasks(
                 status,
                 params.assignee.as_deref(),
@@ -177,11 +178,14 @@ impl TaskMcpServer {
                 params.parent.as_deref(),
                 params.blocked_by.as_deref(),
                 params.blocks.as_deref(),
+                None,
+                50,
+                0,
             )
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
         Ok(CallToolResult::success(vec![Content::text(
-            serde_json::to_string(&tasks).unwrap(),
+            serde_json::to_string(&result.tasks).unwrap(),
         )]))
     }
 

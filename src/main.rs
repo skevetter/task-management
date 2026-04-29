@@ -161,7 +161,7 @@ fn main() {
     let json = cli.json;
 
     let resolve = |prefix: &str| -> String {
-        db.resolve_short_id(prefix).unwrap_or_else(|e| {
+        db.resolve_short_id(prefix, None).unwrap_or_else(|e| {
             eprintln!("{e}");
             std::process::exit(1);
         })
@@ -185,6 +185,7 @@ fn main() {
                     &tags,
                     parent.as_deref(),
                     None,
+                    "default",
                 )
                 .unwrap_or_else(|e| {
                     eprintln!("Failed to create task: {e}");
@@ -326,7 +327,7 @@ fn main() {
             blocked_by,
             blocks,
         } => {
-            let tasks = db
+            let result = db
                 .list_tasks(
                     status,
                     assignee.as_deref(),
@@ -335,11 +336,15 @@ fn main() {
                     parent.as_deref(),
                     blocked_by.as_deref(),
                     blocks.as_deref(),
+                    None,
+                    50,
+                    0,
                 )
                 .unwrap_or_else(|e| {
                     eprintln!("Failed to list tasks: {e}");
                     std::process::exit(1);
                 });
+            let tasks = result.tasks;
             if json {
                 println!("{}", serde_json::to_string(&tasks).unwrap());
             } else if tasks.is_empty() {

@@ -71,10 +71,28 @@ fn link_type_inverse() {
 fn create_and_list_link() {
     let db = test_db();
     let t1 = db
-        .create_task("Task A", None, TaskPriority::Medium, None, &[], None, None)
+        .create_task(
+            "Task A",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
         .unwrap();
     let t2 = db
-        .create_task("Task B", None, TaskPriority::Medium, None, &[], None, None)
+        .create_task(
+            "Task B",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
         .unwrap();
 
     let link_id = db
@@ -94,10 +112,28 @@ fn create_and_list_link() {
 fn inverse_relationship_from_target() {
     let db = test_db();
     let t1 = db
-        .create_task("Task A", None, TaskPriority::Medium, None, &[], None, None)
+        .create_task(
+            "Task A",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
         .unwrap();
     let t2 = db
-        .create_task("Task B", None, TaskPriority::Medium, None, &[], None, None)
+        .create_task(
+            "Task B",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
         .unwrap();
 
     db.create_link(&t1.id, &t2.id, &LinkType::BlockedBy)
@@ -113,10 +149,28 @@ fn inverse_relationship_from_target() {
 fn remove_link_db() {
     let db = test_db();
     let t1 = db
-        .create_task("Task A", None, TaskPriority::Medium, None, &[], None, None)
+        .create_task(
+            "Task A",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
         .unwrap();
     let t2 = db
-        .create_task("Task B", None, TaskPriority::Medium, None, &[], None, None)
+        .create_task(
+            "Task B",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
         .unwrap();
 
     let link_id = db.create_link(&t1.id, &t2.id, &LinkType::Parent).unwrap();
@@ -131,7 +185,16 @@ fn remove_link_db() {
 fn create_link_nonexistent_task() {
     let db = test_db();
     let t1 = db
-        .create_task("Task A", None, TaskPriority::Medium, None, &[], None, None)
+        .create_task(
+            "Task A",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
         .unwrap();
 
     let result = db.create_link(&t1.id, "nonexistent-id", &LinkType::BlockedBy);
@@ -149,7 +212,16 @@ fn remove_link_nonexistent() {
 fn list_tasks_filter_blocked_by() {
     let db = test_db();
     let blocker = db
-        .create_task("Blocker", None, TaskPriority::High, None, &[], None, None)
+        .create_task(
+            "Blocker",
+            None,
+            TaskPriority::High,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
         .unwrap();
     let blocked = db
         .create_task(
@@ -160,17 +232,39 @@ fn list_tasks_filter_blocked_by() {
             &[],
             None,
             None,
+            "default",
         )
         .unwrap();
-    db.create_task("Unrelated", None, TaskPriority::Low, None, &[], None, None)
-        .unwrap();
+    db.create_task(
+        "Unrelated",
+        None,
+        TaskPriority::Low,
+        None,
+        &[],
+        None,
+        None,
+        "default",
+    )
+    .unwrap();
 
     db.create_link(&blocked.id, &blocker.id, &LinkType::BlockedBy)
         .unwrap();
 
     let results = db
-        .list_tasks(None, None, None, None, None, Some(&blocker.id), None)
-        .unwrap();
+        .list_tasks(
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(&blocker.id),
+            None,
+            None,
+            50,
+            0,
+        )
+        .unwrap()
+        .tasks;
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].id, blocked.id);
 }
@@ -179,17 +273,47 @@ fn list_tasks_filter_blocked_by() {
 fn list_tasks_filter_blocks() {
     let db = test_db();
     let t1 = db
-        .create_task("Task A", None, TaskPriority::Medium, None, &[], None, None)
+        .create_task(
+            "Task A",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
         .unwrap();
     let t2 = db
-        .create_task("Task B", None, TaskPriority::Medium, None, &[], None, None)
+        .create_task(
+            "Task B",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
         .unwrap();
 
     db.create_link(&t1.id, &t2.id, &LinkType::Blocks).unwrap();
 
     let results = db
-        .list_tasks(None, None, None, None, None, None, Some(&t2.id))
-        .unwrap();
+        .list_tasks(
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(&t2.id),
+            None,
+            50,
+            0,
+        )
+        .unwrap()
+        .tasks;
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].id, t1.id);
 }
@@ -198,18 +322,48 @@ fn list_tasks_filter_blocks() {
 fn list_tasks_filter_parent_via_links() {
     let db = test_db();
     let parent = db
-        .create_task("Parent", None, TaskPriority::High, None, &[], None, None)
+        .create_task(
+            "Parent",
+            None,
+            TaskPriority::High,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
         .unwrap();
     let child = db
-        .create_task("Child", None, TaskPriority::Medium, None, &[], None, None)
+        .create_task(
+            "Child",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
         .unwrap();
 
     db.create_link(&child.id, &parent.id, &LinkType::Parent)
         .unwrap();
 
     let results = db
-        .list_tasks(None, None, None, None, Some(&parent.id), None, None)
-        .unwrap();
+        .list_tasks(
+            None,
+            None,
+            None,
+            None,
+            Some(&parent.id),
+            None,
+            None,
+            None,
+            50,
+            0,
+        )
+        .unwrap()
+        .tasks;
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].id, child.id);
 }
@@ -218,10 +372,28 @@ fn list_tasks_filter_parent_via_links() {
 fn timeline_link_added() {
     let db = test_db();
     let t1 = db
-        .create_task("Task A", None, TaskPriority::Medium, None, &[], None, None)
+        .create_task(
+            "Task A",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
         .unwrap();
     let t2 = db
-        .create_task("Task B", None, TaskPriority::Medium, None, &[], None, None)
+        .create_task(
+            "Task B",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
         .unwrap();
 
     db.create_link(&t1.id, &t2.id, &LinkType::BlockedBy)
@@ -239,10 +411,28 @@ fn timeline_link_added() {
 fn timeline_link_removed() {
     let db = test_db();
     let t1 = db
-        .create_task("Task A", None, TaskPriority::Medium, None, &[], None, None)
+        .create_task(
+            "Task A",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
         .unwrap();
     let t2 = db
-        .create_task("Task B", None, TaskPriority::Medium, None, &[], None, None)
+        .create_task(
+            "Task B",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
         .unwrap();
 
     let link_id = db
@@ -579,8 +769,20 @@ fn migration_parent_task_id_to_links() {
     assert!(orphan_links.is_empty());
 
     let children = db
-        .list_tasks(None, None, None, None, Some("parent-1"), None, None)
-        .unwrap();
+        .list_tasks(
+            None,
+            None,
+            None,
+            None,
+            Some("parent-1"),
+            None,
+            None,
+            None,
+            50,
+            0,
+        )
+        .unwrap()
+        .tasks;
     assert_eq!(children.len(), 1);
     assert_eq!(children[0].id, "child-1");
 }
