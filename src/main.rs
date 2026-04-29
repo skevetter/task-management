@@ -44,6 +44,9 @@ struct Cli {
     #[arg(long, global = true)]
     json: bool,
 
+    #[arg(long, short = 'n', global = true)]
+    namespace: Option<String>,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -100,6 +103,10 @@ enum Commands {
         blocked_by: Option<String>,
         #[arg(long)]
         blocks: Option<String>,
+        #[arg(long, default_value_t = 50)]
+        limit: i64,
+        #[arg(long, default_value_t = 0)]
+        offset: i64,
     },
     Note {
         id: String,
@@ -159,9 +166,10 @@ fn main() {
     });
 
     let json = cli.json;
+    let namespace = cli.namespace.as_deref();
 
     let resolve = |prefix: &str| -> String {
-        db.resolve_short_id(prefix, None).unwrap_or_else(|e| {
+        db.resolve_short_id(prefix, namespace).unwrap_or_else(|e| {
             eprintln!("{e}");
             std::process::exit(1);
         })
@@ -185,7 +193,7 @@ fn main() {
                     &tags,
                     parent.as_deref(),
                     None,
-                    "default",
+                    namespace.unwrap_or("default"),
                 )
                 .unwrap_or_else(|e| {
                     eprintln!("Failed to create task: {e}");
@@ -326,6 +334,8 @@ fn main() {
             parent,
             blocked_by,
             blocks,
+            limit,
+            offset,
         } => {
             let result = db
                 .list_tasks(
@@ -336,18 +346,17 @@ fn main() {
                     parent.as_deref(),
                     blocked_by.as_deref(),
                     blocks.as_deref(),
-                    None,
-                    50,
-                    0,
+                    namespace,
+                    limit,
+                    offset,
                 )
                 .unwrap_or_else(|e| {
                     eprintln!("Failed to list tasks: {e}");
                     std::process::exit(1);
                 });
-            let tasks = result.tasks;
             if json {
-                println!("{}", serde_json::to_string(&tasks).unwrap());
-            } else if tasks.is_empty() {
+                println!("{}", serde_json::to_string(&result).unwrap());
+            } else if result.tasks.is_empty() {
                 println!("No tasks found.");
             } else {
                 let header = format!(
@@ -356,7 +365,7 @@ fn main() {
                 );
                 println!("{header}");
                 println!("{}", "-".repeat(76));
-                for task in &tasks {
+                for task in &result.tasks {
                     let short_id = if task.id.len() > 8 {
                         &task.id[..8]
                     } else {
@@ -373,7 +382,9 @@ fn main() {
                         short_id, title, task.status, task.priority, assignee_str
                     );
                 }
-                println!("\n{} task(s) found.", tasks.len());
+                let start = offset + 1;
+                let end = offset + result.tasks.len() as i64;
+                println!("\nShowing {start}-{end} of {} task(s)", result.total);
             }
         }
         Commands::Note {

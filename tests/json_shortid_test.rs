@@ -85,11 +85,14 @@ fn json_list_is_array() {
     assert!(output.status.success());
     let val: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
 
-    assert!(val.is_array());
-    let arr = val.as_array().unwrap();
+    assert!(val.is_object());
+    let arr = val["tasks"].as_array().unwrap();
     assert_eq!(arr.len(), 2);
     assert!(arr[0]["id"].is_string());
     assert!(arr[0]["title"].is_string());
+    assert_eq!(val["total"].as_i64().unwrap(), 2);
+    assert_eq!(val["limit"].as_i64().unwrap(), 50);
+    assert_eq!(val["offset"].as_i64().unwrap(), 0);
 }
 
 #[test]
@@ -405,8 +408,9 @@ fn json_list_empty_returns_empty_array() {
         .unwrap();
     assert!(output.status.success());
     let val: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert!(val.is_array());
-    assert_eq!(val.as_array().unwrap().len(), 0);
+    assert!(val.is_object());
+    assert_eq!(val["tasks"].as_array().unwrap().len(), 0);
+    assert_eq!(val["total"].as_i64().unwrap(), 0);
 }
 
 #[test]
