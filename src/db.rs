@@ -797,7 +797,6 @@ impl Database {
         Ok(links)
     }
 
-    #[allow(dead_code)]
     pub fn list_templates(&self) -> Result<Vec<TaskTemplate>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, name, title_pattern, default_priority, default_status, default_tags, builtin, created_at
@@ -823,7 +822,6 @@ impl Database {
         Ok(templates)
     }
 
-    #[allow(dead_code)]
     pub fn get_template(&self, name: &str) -> Result<Option<TaskTemplate>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, name, title_pattern, default_priority, default_status, default_tags, builtin, created_at
@@ -849,7 +847,6 @@ impl Database {
         }
     }
 
-    #[allow(dead_code)]
     pub fn create_template(
         &self,
         name: &str,
@@ -879,7 +876,6 @@ impl Database {
         })
     }
 
-    #[allow(dead_code)]
     pub fn delete_template(&self, name: &str) -> std::result::Result<(), String> {
         let tmpl = self.get_template(name).map_err(|e| e.to_string())?;
         let Some(tmpl) = tmpl else {
@@ -894,7 +890,6 @@ impl Database {
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub fn create_task_from_template(
         &self,
         template_name: &str,

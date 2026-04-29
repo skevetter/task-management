@@ -70,6 +70,8 @@ enum Commands {
         tags: Vec<String>,
         #[arg(long = "parent")]
         parent: Option<String>,
+        #[arg(long)]
+        template: Option<String>,
     },
     Show {
         id: String,
@@ -131,6 +133,10 @@ enum Commands {
         #[command(subcommand)]
         command: LinkCommands,
     },
+    Template {
+        #[command(subcommand)]
+        command: TemplateCommands,
+    },
     Serve {
         #[arg(long, default_value = "stdio")]
         transport: String,
@@ -152,6 +158,29 @@ enum LinkCommands {
     },
     List {
         task_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum TemplateCommands {
+    List,
+    Show {
+        name: String,
+    },
+    Create {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        title_pattern: String,
+        #[arg(long)]
+        priority: Option<String>,
+        #[arg(long)]
+        status: Option<String>,
+        #[arg(long = "tag")]
+        tags: Vec<String>,
+    },
+    Delete {
+        name: String,
     },
 }
 
@@ -193,9 +222,21 @@ fn main() {
             assignee,
             tags,
             parent,
+            template,
         } => {
-            let task = db
-                .create_task(
+            let task = if let Some(tmpl_name) = template {
+                db.create_task_from_template(
+                    &tmpl_name,
+                    &title,
+                    namespace.unwrap_or("default"),
+                    None,
+                )
+                .unwrap_or_else(|e| {
+                    eprintln!("Failed to create task from template: {e}");
+                    std::process::exit(1);
+                })
+            } else {
+                db.create_task(
                     &title,
                     description.as_deref(),
                     priority,
@@ -208,7 +249,8 @@ fn main() {
                 .unwrap_or_else(|e| {
                     eprintln!("Failed to create task: {e}");
                     std::process::exit(1);
-                });
+                })
+            };
             if json {
                 println!("{}", serde_json::to_string(&task).unwrap());
             } else {
@@ -538,6 +580,101 @@ fn main() {
                 service.waiting().await.unwrap();
             });
         }
+        Commands::Template { command } => match command {
+            TemplateCommands::List => {
+                let templates = db.list_templates().unwrap_or_else(|e| {
+                    eprintln!("Failed to list templates: {e}");
+                    std::process::exit(1);
+                });
+                if json {
+                    println!("{}", serde_json::to_string(&templates).unwrap());
+                } else if templates.is_empty() {
+                    println!("No templates found.");
+                } else {
+                    println!(
+                        "{:<20} {:<30} {:<10} BUILTIN",
+                        "NAME", "PATTERN", "PRIORITY"
+                    );
+                    println!("{}", "-".repeat(68));
+                    for t in &templates {
+                        println!(
+                            "{:<20} {:<30} {:<10} {}",
+                            t.name,
+                            t.title_pattern,
+                            t.default_priority.as_deref().unwrap_or("-"),
+                            if t.builtin { "yes" } else { "no" }
+                        );
+                    }
+                }
+            }
+            TemplateCommands::Show { name } => {
+                let tmpl = db
+                    .get_template(&name)
+                    .unwrap_or_else(|e| {
+                        eprintln!("Failed to get template: {e}");
+                        std::process::exit(1);
+                    })
+                    .unwrap_or_else(|| {
+                        eprintln!("Template not found: {name}");
+                        std::process::exit(1);
+                    });
+                if json {
+                    println!("{}", serde_json::to_string(&tmpl).unwrap());
+                } else {
+                    println!("Name:     {}", tmpl.name);
+                    println!("Pattern:  {}", tmpl.title_pattern);
+                    println!(
+                        "Priority: {}",
+                        tmpl.default_priority.as_deref().unwrap_or("-")
+                    );
+                    println!("Builtin:  {}", tmpl.builtin);
+                }
+            }
+            TemplateCommands::Create {
+                name,
+                title_pattern,
+                priority,
+                status,
+                tags,
+            } => {
+                let tags_opt = if tags.is_empty() {
+                    None
+                } else {
+                    Some(tags.as_slice())
+                };
+                let tmpl = db
+                    .create_template(
+                        &name,
+                        &title_pattern,
+                        priority.as_deref(),
+                        status.as_deref(),
+                        tags_opt,
+                    )
+                    .unwrap_or_else(|e| {
+                        eprintln!("Failed to create template: {e}");
+                        std::process::exit(1);
+                    });
+                if json {
+                    println!("{}", serde_json::to_string(&tmpl).unwrap());
+                } else {
+                    println!("Template '{}' created.", tmpl.name);
+                }
+            }
+            TemplateCommands::Delete { name } => {
+                db.delete_template(&name).unwrap_or_else(|e| {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                });
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string(&serde_json::json!({"deleted": name})).unwrap()
+                    );
+                } else {
+                    println!("Template '{name}' deleted.");
+                }
+            }
+        },
         Commands::Link { command } => match command {
             LinkCommands::Add {
                 task_id,

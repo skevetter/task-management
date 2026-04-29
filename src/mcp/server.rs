@@ -423,4 +423,60 @@ impl TaskMcpServer {
             serde_json::json!({"status": "ok", "link_id": params.link_id}).to_string(),
         )]))
     }
+
+    #[tool(description = "Create a task from a named template")]
+    fn create_from_template(
+        &self,
+        Parameters(params): Parameters<CreateFromTemplateParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ns = self.resolve_namespace(&params.namespace);
+        let actor = self.resolve_actor(params.actor);
+
+        let db = self.db.lock().unwrap();
+        let task = db
+            .create_task_from_template(
+                &params.template,
+                &params.title,
+                ns.unwrap_or("default"),
+                actor.as_deref(),
+            )
+            .map_err(|e| ErrorData::invalid_params(e, None))?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string(&task).unwrap(),
+        )]))
+    }
+
+    #[tool(description = "List all available task templates")]
+    fn list_templates(
+        &self,
+        #[allow(unused_variables)] Parameters(params): Parameters<ListTemplatesParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let db = self.db.lock().unwrap();
+        let templates = db
+            .list_templates()
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string(&templates).unwrap(),
+        )]))
+    }
+
+    #[tool(description = "Show details of a specific task template")]
+    fn show_template(
+        &self,
+        Parameters(params): Parameters<ShowTemplateParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let db = self.db.lock().unwrap();
+        let template = db
+            .get_template(&params.name)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+            .ok_or_else(|| {
+                ErrorData::invalid_params(format!("Template not found: {}", params.name), None)
+            })?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string(&template).unwrap(),
+        )]))
+    }
 }
