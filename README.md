@@ -1,6 +1,6 @@
 # task-management
 
-Rust CLI task manager with SQLite persistence, XDG-compliant paths, and task linking.
+Rust CLI task manager with SQLite persistence, XDG-compliant paths, task linking, and namespace scoping.
 
 ## Install
 
@@ -22,20 +22,41 @@ Resolved in order:
 2. `$XDG_DATA_HOME/task-management/tasks.db`
 3. `~/.local/share/task-management/tasks.db` (default)
 
+## Namespace Scoping
+
+All commands support `--namespace` (`-n`) to isolate tasks into separate scopes. Default namespace is `default`.
+
+```bash
+task-management create --title "Fix bug" --namespace my-project
+task-management list --namespace my-project
+task-management show abc1 --namespace my-project
+task-management update abc1 --status closed --namespace my-project
+```
+
+## List Pagination
+
+The `list` command supports `--limit` and `--offset` for pagination. Default limit is 50, offset is 0.
+
+```bash
+task-management list --limit 10
+task-management list --limit 10 --offset 20
+task-management list --namespace my-project --limit 5
+```
+
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `create --title "..." [--priority P] [--assignee A] [--tag T] [--parent ID]` | Create a task |
-| `list [--status S] [--priority P] [--tag T] [--parent ID] [--blocked-by ID] [--blocks ID]` | List/filter tasks |
-| `show <ID>` | Show task details and links |
-| `update <ID> [--status S] [--priority P] [--assignee A] [--tag T]` | Update a task |
-| `close <ID>` | Close a task |
-| `note <ID> "message" [--author A]` | Add a note |
-| `history <ID>` | View task timeline |
-| `link add <ID> <REL> <TARGET>` | Add a relationship |
-| `link remove <LINK_ID>` | Remove a relationship |
-| `link list <ID>` | List task relationships |
+| `create --title "..." [--priority P] [--assignee A] [--tag T] [--parent ID] [-n NS]` | Create a task |
+| `list [--status S] [--priority P] [--tag T] [--limit N] [--offset N] [-n NS]` | List/filter tasks |
+| `show <ID> [-n NS]` | Show task details and links |
+| `update <ID> [--status S] [--priority P] [--assignee A] [--tag T] [-n NS]` | Update a task |
+| `close <ID> [-n NS]` | Close a task |
+| `note <ID> "message" [--author A] [-n NS]` | Add a note |
+| `history <ID> [-n NS]` | View task timeline |
+| `link add <ID> <REL> <TARGET> [-n NS]` | Add a relationship |
+| `link remove <LINK_ID> [-n NS]` | Remove a relationship |
+| `link list <ID> [-n NS]` | List task relationships |
 
 ## Relationship Types
 
@@ -56,6 +77,12 @@ All subcommands accept `--json` for machine-readable output; human-readable is t
 ```bash
 task-management list --status open --json
 task-management show <ID> --json
+```
+
+The `list --json` command returns a pagination envelope:
+
+```json
+{"tasks": [...], "total": 42, "limit": 50, "offset": 0}
 ```
 
 ## Short ID Prefix
@@ -118,5 +145,7 @@ Cursor (`.cursor/mcp.json`):
 | task_history | Get task timeline events |
 | link_tasks | Create a link between tasks |
 | list_links | List links for a task |
+
+All 9 tools accept a `namespace` parameter (defaults to `"default"`). The `list_tasks` tool also accepts `limit` and `offset` for pagination.
 
 Tool parameters are auto-discovered via the MCP protocol.
