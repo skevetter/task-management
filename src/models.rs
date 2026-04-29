@@ -142,6 +142,16 @@ pub struct Task {
     pub parent_task_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    pub namespace: String,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListResult {
+    pub tasks: Vec<Task>,
+    pub total: i64,
+    pub limit: i64,
+    pub offset: i64,
 }
 
 #[allow(dead_code)]
@@ -201,6 +211,7 @@ impl fmt::Display for Task {
         if let Some(parent) = &self.parent_task_id {
             writeln!(f, "Parent:      {parent}")?;
         }
+        writeln!(f, "Namespace:   {}", self.namespace)?;
         writeln!(f, "Created:     {}", self.created_at)?;
         write!(f, "Updated:     {}", self.updated_at)
     }

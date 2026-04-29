@@ -101,6 +101,17 @@ impl Database {
             )?;
         }
 
+        if max_version < 3 {
+            conn.execute_batch(
+                "BEGIN IMMEDIATE;
+                 ALTER TABLE tasks ADD COLUMN namespace TEXT NOT NULL DEFAULT 'default';
+                 CREATE INDEX idx_tasks_namespace ON tasks (namespace);
+                 INSERT OR IGNORE INTO schema_versions (version, applied_at)
+                 VALUES (3, datetime('now'));
+                 COMMIT;",
+            )?;
+        }
+
         Ok(Self { conn })
     }
 
@@ -176,6 +187,7 @@ impl Database {
             parent_task_id: parent_task_id.map(String::from),
             created_at: now.clone(),
             updated_at: now,
+            namespace: "default".to_string(),
         })
     }
 
@@ -207,7 +219,7 @@ impl Database {
 
     pub fn get_task(&self, id: &str) -> Result<Option<Task>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, title, description, status, priority, assignee, tags, parent_task_id, created_at, updated_at
+            "SELECT id, title, description, status, priority, assignee, tags, parent_task_id, created_at, updated_at, namespace
              FROM tasks WHERE id = ?1",
         )?;
 
@@ -229,6 +241,7 @@ impl Database {
                 parent_task_id: row.get(7)?,
                 created_at: row.get(8)?,
                 updated_at: row.get(9)?,
+                namespace: row.get(10)?,
             })
         })?;
 
@@ -321,6 +334,7 @@ impl Database {
             parent_task_id: task.parent_task_id,
             created_at: task.created_at,
             updated_at: now,
+            namespace: task.namespace,
         }))
     }
 
@@ -382,7 +396,7 @@ impl Database {
         }
 
         let mut sql =
-            "SELECT t.id, t.title, t.description, t.status, t.priority, t.assignee, t.tags, t.parent_task_id, t.created_at, t.updated_at FROM tasks t"
+            "SELECT t.id, t.title, t.description, t.status, t.priority, t.assignee, t.tags, t.parent_task_id, t.created_at, t.updated_at, t.namespace FROM tasks t"
                 .to_string();
         if !conditions.is_empty() {
             sql.push_str(" WHERE ");
@@ -411,6 +425,7 @@ impl Database {
                 parent_task_id: row.get(7)?,
                 created_at: row.get(8)?,
                 updated_at: row.get(9)?,
+                namespace: row.get(10)?,
             })
         })?;
 
