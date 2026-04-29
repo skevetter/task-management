@@ -82,7 +82,8 @@ impl Database {
 
         if max_version < 2 {
             conn.execute_batch(
-                "INSERT INTO task_links (id, source_id, target_id, link_type, created_at)
+                "BEGIN IMMEDIATE;
+                 INSERT INTO task_links (id, source_id, target_id, link_type, created_at)
                  SELECT
                      lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' ||
                      substr(lower(hex(randomblob(2))),2) || '-' ||
@@ -93,11 +94,10 @@ impl Database {
                      'parent',
                      created_at
                  FROM tasks
-                 WHERE parent_task_id IS NOT NULL;",
-            )?;
-            conn.execute(
-                "INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (2, ?1)",
-                params![now],
+                 WHERE parent_task_id IS NOT NULL;
+                 INSERT OR IGNORE INTO schema_versions (version, applied_at)
+                 VALUES (2, datetime('now'));
+                 COMMIT;",
             )?;
         }
 
@@ -117,32 +117,50 @@ impl Database {
         let now = Utc::now().to_rfc3339();
         let tags_json = serde_json::to_string(tags).unwrap_or_else(|_| "[]".to_string());
 
-        self.conn.execute(
-            "INSERT INTO tasks (id, title, description, status, priority, assignee, tags, parent_task_id, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            params![
-                id,
-                title,
-                description,
-                TaskStatus::Open.to_string(),
-                priority.to_string(),
-                assignee,
-                tags_json,
-                parent_task_id,
-                now,
-                now,
-            ],
-        )?;
+        self.conn.execute("BEGIN IMMEDIATE", [])?;
 
-        self.insert_timeline_event(&id, "created", None, title, None, &now)?;
-
-        if let Some(pid) = parent_task_id {
-            let link_id = Uuid::new_v4().to_string();
+        let result = (|| -> Result<()> {
             self.conn.execute(
-                "INSERT INTO task_links (id, source_id, target_id, link_type, created_at)
-                 VALUES (?1, ?2, ?3, 'parent', ?4)",
-                params![link_id, id, pid, now],
+                "INSERT INTO tasks (id, title, description, status, priority, assignee, tags, parent_task_id, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![
+                    id,
+                    title,
+                    description,
+                    TaskStatus::Open.to_string(),
+                    priority.to_string(),
+                    assignee,
+                    tags_json,
+                    parent_task_id,
+                    now,
+                    now,
+                ],
             )?;
+
+            self.insert_timeline_event(&id, "created", None, title, None, &now)?;
+
+            if let Some(pid) = parent_task_id {
+                let link_id = Uuid::new_v4().to_string();
+                self.conn.execute(
+                    "INSERT INTO task_links (id, source_id, target_id, link_type, created_at)
+                     VALUES (?1, ?2, ?3, 'parent', ?4)",
+                    params![link_id, &id, pid, &now],
+                )?;
+                let new_value = format!("parent:{pid}");
+                self.insert_timeline_event(&id, "link_added", None, &new_value, None, &now)?;
+            }
+
+            Ok(())
+        })();
+
+        match result {
+            Ok(()) => {
+                self.conn.execute("COMMIT", [])?;
+            }
+            Err(e) => {
+                let _ = self.conn.execute("ROLLBACK", []);
+                return Err(e);
+            }
         }
 
         Ok(Task {
@@ -584,7 +602,13 @@ impl Database {
         let mut links = Vec::new();
         for row in rows {
             let (link_id, link_type_str, related_id, title, direction) = row?;
-            let link_type: LinkType = link_type_str.parse().unwrap_or(LinkType::RelatedTo);
+            let link_type: LinkType = link_type_str.parse().map_err(|e: String| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    1,
+                    rusqlite::types::Type::Text,
+                    Box::from(e),
+                )
+            })?;
             let effective_type = if direction == "source" {
                 link_type
             } else {

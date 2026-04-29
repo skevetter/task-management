@@ -53,16 +53,6 @@ impl LinkType {
     }
 }
 
-#[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskLink {
-    pub id: String,
-    pub source_id: String,
-    pub target_id: String,
-    pub link_type: LinkType,
-    pub created_at: String,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum TaskStatus {

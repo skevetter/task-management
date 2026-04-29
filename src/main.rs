@@ -429,10 +429,7 @@ fn main() {
                 if links.is_empty() {
                     println!("No links found for task {task_id}.");
                 } else {
-                    println!(
-                        "{:<10} {:<14} RELATED TASK",
-                        "LINK ID", "RELATIONSHIP"
-                    );
+                    println!("{:<10} {:<14} RELATED TASK", "LINK ID", "RELATIONSHIP");
                     let sep = format!(
                         "{:<10} {:<14} {}",
                         "\u{2500}".repeat(8),
