@@ -193,7 +193,6 @@ pub struct TaskLink {
     pub related_task_title: String,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskTemplate {
     pub id: String,
