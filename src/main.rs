@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 use db::Database;
-use models::{LinkType, TaskPriority, TaskStatus};
+use models::{LinkType, TaskDetail, TaskLink, TaskPriority, TaskStatus};
 
 fn default_db_path() -> PathBuf {
     let base = match std::env::var("XDG_DATA_HOME") {
@@ -39,6 +39,9 @@ fn default_db_path() -> PathBuf {
 struct Cli {
     #[arg(long, global = true)]
     db: Option<String>,
+
+    #[arg(long, global = true)]
+    json: bool,
 
     #[command(subcommand)]
     command: Commands,
@@ -148,6 +151,8 @@ fn main() {
         std::process::exit(1);
     });
 
+    let json = cli.json;
+
     match cli.command {
         Commands::Create {
             title,
@@ -170,7 +175,11 @@ fn main() {
                     eprintln!("Failed to create task: {e}");
                     std::process::exit(1);
                 });
-            println!("{task}");
+            if json {
+                println!("{}", serde_json::to_string(&task).unwrap());
+            } else {
+                println!("{task}");
+            }
         }
         Commands::Show { id } => {
             let task = db.get_task(&id).unwrap_or_else(|e| {
@@ -179,20 +188,47 @@ fn main() {
             });
             match task {
                 Some(t) => {
-                    println!("{t}");
-                    let links = db.get_links(&t.id).unwrap_or_else(|e| {
+                    let raw_links = db.get_links(&t.id).unwrap_or_else(|e| {
                         eprintln!("Failed to get links: {e}");
                         std::process::exit(1);
                     });
-                    if !links.is_empty() {
-                        println!("Links:");
-                        for (_, link_type, related_id, title) in &links {
-                            let short_id = if related_id.len() > 8 {
-                                &related_id[..8]
-                            } else {
-                                related_id
-                            };
-                            println!("  {link_type}  {short_id}  ({title})");
+                    if json {
+                        let notes = db.get_notes(&t.id).unwrap_or_else(|e| {
+                            eprintln!("Failed to get notes: {e}");
+                            std::process::exit(1);
+                        });
+                        let timeline = db.get_timeline(&t.id).unwrap_or_else(|e| {
+                            eprintln!("Failed to get timeline: {e}");
+                            std::process::exit(1);
+                        });
+                        let links: Vec<TaskLink> = raw_links
+                            .into_iter()
+                            .map(|(lid, lt, rid, title)| TaskLink {
+                                link_id: lid,
+                                relationship: lt.to_string(),
+                                related_task_id: rid,
+                                related_task_title: title,
+                            })
+                            .collect();
+                        let detail = TaskDetail {
+                            task: t,
+                            notes,
+                            timeline,
+                            links,
+                        };
+                        println!("{}", serde_json::to_string(&detail).unwrap());
+                    } else {
+                        println!("{t}");
+                        if !raw_links.is_empty() {
+                            println!("Links:");
+                            for (_, link_type, related_id, title) in &raw_links {
+                                let short_id = if related_id.len() > 8 {
+                                    &related_id[..8]
+                                } else {
+                                    related_id
+                                };
+                                println!("  {link_type}  {short_id}  ({title})");
+                            }
                         }
                     }
                 }
@@ -231,7 +267,13 @@ fn main() {
                     std::process::exit(1);
                 });
             match task {
-                Some(t) => println!("{t}"),
+                Some(t) => {
+                    if json {
+                        println!("{}", serde_json::to_string(&t).unwrap());
+                    } else {
+                        println!("{t}");
+                    }
+                }
                 None => {
                     eprintln!("Task not found: {id}");
                     std::process::exit(1);
@@ -244,7 +286,13 @@ fn main() {
                 std::process::exit(1);
             });
             match task {
-                Some(t) => println!("{t}"),
+                Some(t) => {
+                    if json {
+                        println!("{}", serde_json::to_string(&t).unwrap());
+                    } else {
+                        println!("{t}");
+                    }
+                }
                 None => {
                     eprintln!("Task not found: {id}");
                     std::process::exit(1);
@@ -274,7 +322,9 @@ fn main() {
                     eprintln!("Failed to list tasks: {e}");
                     std::process::exit(1);
                 });
-            if tasks.is_empty() {
+            if json {
+                println!("{}", serde_json::to_string(&tasks).unwrap());
+            } else if tasks.is_empty() {
                 println!("No tasks found.");
             } else {
                 let header = format!(
@@ -311,11 +361,15 @@ fn main() {
             let note = db.add_note(&id, &message, author.as_deref());
             match note {
                 Ok(n) => {
-                    println!("Note ID:    {}", n.id);
-                    println!("Task:       {}", n.task_id);
-                    println!("Author:     {}", n.author.as_deref().unwrap_or("(none)"));
-                    println!("Body:       {}", n.body);
-                    println!("Created:    {}", n.created_at);
+                    if json {
+                        println!("{}", serde_json::to_string(&n).unwrap());
+                    } else {
+                        println!("Note ID:    {}", n.id);
+                        println!("Task:       {}", n.task_id);
+                        println!("Author:     {}", n.author.as_deref().unwrap_or("(none)"));
+                        println!("Body:       {}", n.body);
+                        println!("Created:    {}", n.created_at);
+                    }
                 }
                 Err(_) => {
                     eprintln!("Task not found: {id}");
@@ -338,56 +392,58 @@ fn main() {
                 std::process::exit(1);
             });
 
-            let separator = "\u{2500}".repeat(54);
-            println!("History for task {id}");
-            println!("{separator}");
-            if events.is_empty() {
-                println!("(no events)");
+            if json {
+                println!("{}", serde_json::to_string(&events).unwrap());
             } else {
-                for event in &events {
-                    let description = match event.event_type.as_str() {
-                        "created" => event.new_value.clone(),
-                        "status_changed" | "priority_changed" => {
-                            format!(
-                                "{} \u{2192} {}",
-                                event.old_value.as_deref().unwrap_or(""),
-                                &event.new_value
-                            )
-                        }
-                        "assignee_changed" => {
-                            let old = event
-                                .old_value
-                                .as_deref()
-                                .filter(|s| !s.is_empty())
-                                .unwrap_or("(none)");
-                            let new = if event.new_value.is_empty() {
-                                "(none)"
-                            } else {
-                                &event.new_value
-                            };
-                            format!("{old} \u{2192} {new}")
-                        }
-                        "note_added" => match &event.actor {
-                            Some(actor) if !actor.is_empty() => {
-                                format!("{} (by {actor})", event.new_value)
+                let separator = "\u{2500}".repeat(54);
+                println!("History for task {id}");
+                println!("{separator}");
+                if events.is_empty() {
+                    println!("(no events)");
+                } else {
+                    for event in &events {
+                        let description = match event.event_type.as_str() {
+                            "created" => event.new_value.clone(),
+                            "status_changed" | "priority_changed" => {
+                                format!(
+                                    "{} \u{2192} {}",
+                                    event.old_value.as_deref().unwrap_or(""),
+                                    &event.new_value
+                                )
                             }
+                            "assignee_changed" => {
+                                let old = event
+                                    .old_value
+                                    .as_deref()
+                                    .filter(|s| !s.is_empty())
+                                    .unwrap_or("(none)");
+                                let new = if event.new_value.is_empty() {
+                                    "(none)"
+                                } else {
+                                    &event.new_value
+                                };
+                                format!("{old} \u{2192} {new}")
+                            }
+                            "note_added" => match &event.actor {
+                                Some(actor) if !actor.is_empty() => {
+                                    format!("{} (by {actor})", event.new_value)
+                                }
+                                _ => event.new_value.clone(),
+                            },
                             _ => event.new_value.clone(),
-                        },
-                        _ => event.new_value.clone(),
-                    };
-                    println!(
-                        "{:<20}  {:<18}  {}",
-                        event.occurred_at,
-                        format!("[{}]", event.event_type),
-                        description
-                    );
+                        };
+                        println!(
+                            "{:<20}  {:<18}  {}",
+                            event.occurred_at,
+                            format!("[{}]", event.event_type),
+                            description
+                        );
+                    }
                 }
-            }
-            println!("{separator}");
-            if events.is_empty() {
-                // footer already printed separator
-            } else {
-                println!("{} event(s)", events.len());
+                println!("{separator}");
+                if !events.is_empty() {
+                    println!("{} event(s)", events.len());
+                }
             }
         }
         Commands::Link { command } => match command {
@@ -402,31 +458,65 @@ fn main() {
                         eprintln!("Failed to create link: {e}");
                         std::process::exit(1);
                     });
-                let short_id = if link_id.len() > 8 {
-                    &link_id[..8]
+                if json {
+                    let target_title = db
+                        .get_task(&target_id)
+                        .ok()
+                        .flatten()
+                        .map(|t| t.title)
+                        .unwrap_or_default();
+                    let link = TaskLink {
+                        link_id: link_id.clone(),
+                        relationship: relationship.to_string(),
+                        related_task_id: target_id,
+                        related_task_title: target_title,
+                    };
+                    println!("{}", serde_json::to_string(&link).unwrap());
                 } else {
-                    &link_id
-                };
-                println!("Link created: {short_id} ({task_id} {relationship} {target_id})");
+                    let short_id = if link_id.len() > 8 {
+                        &link_id[..8]
+                    } else {
+                        &link_id
+                    };
+                    println!("Link created: {short_id} ({task_id} {relationship} {target_id})");
+                }
             }
             LinkCommands::Remove { link_id } => {
                 db.remove_link(&link_id).unwrap_or_else(|e| {
                     eprintln!("Failed to remove link: {e}");
                     std::process::exit(1);
                 });
-                let short_id = if link_id.len() > 8 {
-                    &link_id[..8]
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string(&serde_json::json!({"removed": link_id})).unwrap()
+                    );
                 } else {
-                    &link_id
-                };
-                println!("Link {short_id} removed.");
+                    let short_id = if link_id.len() > 8 {
+                        &link_id[..8]
+                    } else {
+                        &link_id
+                    };
+                    println!("Link {short_id} removed.");
+                }
             }
             LinkCommands::List { task_id } => {
-                let links = db.get_links(&task_id).unwrap_or_else(|e| {
+                let raw_links = db.get_links(&task_id).unwrap_or_else(|e| {
                     eprintln!("Failed to get links: {e}");
                     std::process::exit(1);
                 });
-                if links.is_empty() {
+                if json {
+                    let links: Vec<TaskLink> = raw_links
+                        .into_iter()
+                        .map(|(lid, lt, rid, title)| TaskLink {
+                            link_id: lid,
+                            relationship: lt.to_string(),
+                            related_task_id: rid,
+                            related_task_title: title,
+                        })
+                        .collect();
+                    println!("{}", serde_json::to_string(&links).unwrap());
+                } else if raw_links.is_empty() {
                     println!("No links found for task {task_id}.");
                 } else {
                     println!("{:<10} {:<14} RELATED TASK", "LINK ID", "RELATIONSHIP");
@@ -437,7 +527,7 @@ fn main() {
                         "\u{2500}".repeat(33)
                     );
                     println!("{sep}");
-                    for (link_id, link_type, related_id, title) in &links {
+                    for (link_id, link_type, related_id, title) in &raw_links {
                         let short_link = if link_id.len() > 8 {
                             &link_id[..8]
                         } else {
@@ -453,7 +543,7 @@ fn main() {
                             short_link, link_type, short_task, title
                         );
                     }
-                    println!("\n{} link(s).", links.len());
+                    println!("\n{} link(s).", raw_links.len());
                 }
             }
         },

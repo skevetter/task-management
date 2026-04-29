@@ -160,6 +160,23 @@ pub struct TimelineEvent {
     pub occurred_at: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskDetail {
+    #[serde(flatten)]
+    pub task: Task,
+    pub notes: Vec<TaskNote>,
+    pub timeline: Vec<TimelineEvent>,
+    pub links: Vec<TaskLink>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskLink {
+    pub link_id: String,
+    pub relationship: String,
+    pub related_task_id: String,
+    pub related_task_title: String,
+}
+
 impl fmt::Display for Task {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "ID:          {}", self.id)?;
