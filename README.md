@@ -10,9 +10,30 @@ cargo build --release
 
 The binary will be at `target/release/task-management`.
 
-## Usage
+## Database Path
 
-All commands accept an optional `--db <path>` flag to specify the database file (defaults to `tasks.db`).
+The CLI resolves the database file in this order:
+
+1. `--db <path>` flag — overrides everything
+2. `$XDG_DATA_HOME/task-management/tasks.db` — used when `XDG_DATA_HOME` is set and non-empty
+3. `~/.local/share/task-management/tasks.db` — the default fallback
+
+The directory is created automatically on first run.
+
+```bash
+# Explicit path
+task-management --db /tmp/dev.db list
+
+# Use a custom XDG location
+XDG_DATA_HOME=/mnt/data task-management list
+# → opens /mnt/data/task-management/tasks.db
+
+# Default (XDG_DATA_HOME unset)
+task-management list
+# → opens ~/.local/share/task-management/tasks.db
+```
+
+## Usage
 
 ### Create a task
 
@@ -30,6 +51,19 @@ task-management create --title "Write unit tests" --parent <PARENT_TASK_ID>
 
 ```bash
 task-management show <TASK_ID>
+```
+
+When the task has relationships, the output includes a **Links** section:
+
+```
+ID:          abc123...
+Title:       Write unit tests
+Status:      open
+...
+
+Links:
+  9f1a2b3c  blocked_by  def456  "Implement auth"
+  7e3d4c5b  related_to  ffe012  "Update API docs"
 ```
 
 ### Update a task
@@ -72,10 +106,17 @@ Filter by tag:
 task-management list --tag backend
 ```
 
-Filter by parent task:
+Filter by parent task (resolved via the link system):
 
 ```bash
 task-management list --parent <PARENT_TASK_ID>
+```
+
+Filter by blocking relationship:
+
+```bash
+task-management list --blocked-by <TASK_ID>   # tasks blocked by <TASK_ID>
+task-management list --blocks <TASK_ID>        # tasks that block <TASK_ID>
 ```
 
 Combine multiple filters (AND logic):
@@ -88,6 +129,65 @@ task-management list --status open --priority high --assignee alice --tag backen
 
 ```bash
 task-management close <TASK_ID>
+```
+
+### Link tasks
+
+Links record directed relationships between tasks. Every link is bidirectional — querying from either end shows the correct perspective.
+
+#### Relationship types
+
+| Type | Inverse | Meaning |
+|------|---------|---------|
+| `parent` | `child` | One task is the parent of another |
+| `child` | `parent` | One task is a child of another |
+| `blocked_by` | `blocks` | This task cannot proceed until the target is done |
+| `blocks` | `blocked_by` | This task is blocking the target |
+| `related_to` | `related_to` | General association (symmetric) |
+
+#### Add a link
+
+```bash
+task-management link add <TASK_ID> <RELATIONSHIP> <TARGET_ID>
+```
+
+Example:
+
+```bash
+task-management link add abc123 blocked_by def456
+# abc123 is now blocked by def456
+# querying def456's links shows it "blocks" abc123
+```
+
+#### Remove a link
+
+```bash
+task-management link remove <LINK_ID>
+```
+
+The link ID appears in `link list` output and in the Links section of `show`.
+
+Example:
+
+```bash
+task-management link remove 9f1a2b3c
+```
+
+#### List links for a task
+
+```bash
+task-management link list <TASK_ID>
+```
+
+Shows all relationships from both directions, each with the correct perspective label:
+
+```
+Links for abc123 "Write unit tests"
+──────────────────────────────────────
+9f1a2b3c  blocked_by  def456  "Implement auth"
+7e3d4c5b  related_to  ffe012  "Update API docs"
+──────────────────────────────────────
+2 link(s)
 ```
 
 ### Add a note to a task
