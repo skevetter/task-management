@@ -113,6 +113,12 @@ enum Commands {
         #[command(subcommand)]
         command: LinkCommands,
     },
+    Serve {
+        #[arg(long, default_value = "stdio")]
+        transport: String,
+        #[arg(long)]
+        namespace: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -457,6 +463,18 @@ fn main() {
                     println!("{} event(s)", events.len());
                 }
             }
+        }
+        Commands::Serve {
+            transport,
+            namespace: _,
+        } => {
+            if transport != "stdio" {
+                eprintln!("Only stdio transport is supported");
+                std::process::exit(1);
+            }
+            eprintln!("MCP server starting (stdio transport)...");
+            // T3 will implement the actual MCP server startup
+            todo!("MCP server implementation in T3");
         }
         Commands::Link { command } => match command {
             LinkCommands::Add {
