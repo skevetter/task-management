@@ -417,3 +417,27 @@ fn test_mcp_list_tasks_pagination() {
     assert_eq!(result["offset"].as_i64().unwrap(), 0);
     assert_eq!(result["tasks"].as_array().unwrap().len(), 2);
 }
+
+#[test]
+fn test_mcp_list_tasks_no_namespace_returns_only_default() {
+    let tmp = NamedTempFile::new().unwrap();
+    let mut client = McpTestClient::new(tmp.path().to_str().unwrap());
+
+    client.call_tool(
+        "create_task",
+        serde_json::json!({"title": "Default task"}),
+    );
+    client.call_tool(
+        "create_task",
+        serde_json::json!({"title": "Other task", "namespace": "other"}),
+    );
+
+    let resp = client.call_tool("list_tasks", serde_json::json!({}));
+    let result = extract_content(&resp);
+
+    assert_eq!(result["total"].as_i64().unwrap(), 1);
+    let tasks = result["tasks"].as_array().unwrap();
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["title"].as_str().unwrap(), "Default task");
+    assert_eq!(tasks[0]["namespace"].as_str().unwrap(), "default");
+}

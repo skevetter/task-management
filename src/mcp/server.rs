@@ -34,7 +34,12 @@ impl TaskMcpServer {
     }
 
     fn resolve_namespace<'a>(&'a self, params_ns: &'a Option<String>) -> Option<&'a str> {
-        params_ns.as_deref().or(self.default_namespace.as_deref())
+        Some(
+            params_ns
+                .as_deref()
+                .or(self.default_namespace.as_deref())
+                .unwrap_or("default"),
+        )
     }
 
     fn resolve_id(&self, prefix: &str, namespace: Option<&str>) -> Result<String, ErrorData> {
