@@ -1,18 +1,44 @@
 mod db;
 mod models;
 
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand};
 
 use db::Database;
 use models::{TaskPriority, TaskStatus};
 
-const DEFAULT_DB_PATH: &str = "tasks.db";
+fn default_db_path() -> PathBuf {
+    let base = match std::env::var("XDG_DATA_HOME") {
+        Ok(val) if !val.is_empty() => {
+            let path = PathBuf::from(&val);
+            if path.is_relative() {
+                eprintln!("XDG_DATA_HOME is a relative path; resolving against cwd");
+                std::env::current_dir()
+                    .unwrap_or_else(|_| PathBuf::from("."))
+                    .join(path)
+            } else {
+                path
+            }
+        }
+        _ => match std::env::var("HOME") {
+            Ok(home) if !home.is_empty() => PathBuf::from(home).join(".local").join("share"),
+            _ => {
+                eprintln!(
+                    "Neither XDG_DATA_HOME nor HOME is set; using ./task-management/tasks.db"
+                );
+                PathBuf::from(".")
+            }
+        },
+    };
+    base.join("task-management").join("tasks.db")
+}
 
 #[derive(Parser)]
 #[command(name = "task-management", about = "A task management CLI tool")]
 struct Cli {
-    #[arg(long, default_value = DEFAULT_DB_PATH, global = true)]
-    db: String,
+    #[arg(long, global = true)]
+    db: Option<String>,
 
     #[command(subcommand)]
     command: Commands,
@@ -80,7 +106,20 @@ enum Commands {
 
 fn main() {
     let cli = Cli::parse();
-    let db = Database::open(&cli.db).unwrap_or_else(|e| {
+    let db_path = match cli.db {
+        Some(p) => PathBuf::from(p),
+        None => default_db_path(),
+    };
+    if let Some(parent) = db_path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent).unwrap_or_else(|e| {
+            eprintln!("Failed to create database directory: {e}");
+            std::process::exit(1);
+        });
+    }
+    let db_str = db_path.to_string_lossy();
+    let db = Database::open(&db_str).unwrap_or_else(|e| {
         eprintln!("Failed to open database: {e}");
         std::process::exit(1);
     });
