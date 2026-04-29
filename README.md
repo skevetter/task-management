@@ -62,8 +62,8 @@ Status:      open
 ...
 
 Links:
-  9f1a2b3c  blocked_by  def456  "Implement auth"
-  7e3d4c5b  related_to  ffe012  "Update API docs"
+  blocked_by  def456  (Implement auth)
+  related_to  ffe012  (Update API docs)
 ```
 
 ### Update a task
@@ -182,12 +182,12 @@ task-management link list <TASK_ID>
 Shows all relationships from both directions, each with the correct perspective label:
 
 ```
-Links for abc123 "Write unit tests"
-──────────────────────────────────────
-9f1a2b3c  blocked_by  def456  "Implement auth"
-7e3d4c5b  related_to  ffe012  "Update API docs"
-──────────────────────────────────────
-2 link(s)
+LINK ID    RELATIONSHIP   RELATED TASK
+────────   ────────────   ─────────────────────────────────
+9f1a2b3c   blocked_by     def456  (Implement auth)
+7e3d4c5b   related_to     ffe012  (Update API docs)
+
+2 link(s).
 ```
 
 ### Add a note to a task
