@@ -1166,6 +1166,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "task-management",
  "tempfile",
  "tokio",
  "uuid",

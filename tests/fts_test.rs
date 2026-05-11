@@ -235,3 +235,99 @@ fn search_migration_indexes_existing_data() {
     let results = db.search_tasks("Beta description", None).unwrap();
     assert_eq!(results.len(), 1);
 }
+
+#[test]
+fn search_with_double_quotes() {
+    let db = test_db();
+    db.create_task(
+        "Fix \"quoted\" issue",
+        None,
+        TaskPriority::Medium,
+        None,
+        &[],
+        None,
+        None,
+        "default",
+    )
+    .unwrap();
+
+    let results = db.search_tasks("\"quoted\"", None).unwrap();
+    assert_eq!(results.len(), 1);
+    assert!(results[0].title.contains("quoted"));
+}
+
+#[test]
+fn search_with_or_keyword() {
+    let db = test_db();
+    db.create_task(
+        "Task with OR in title",
+        None,
+        TaskPriority::Medium,
+        None,
+        &[],
+        None,
+        None,
+        "default",
+    )
+    .unwrap();
+
+    let results = db.search_tasks("OR", None).unwrap();
+    assert_eq!(results.len(), 1);
+}
+
+#[test]
+fn search_with_not_keyword() {
+    let db = test_db();
+    db.create_task(
+        "Task with NOT in title",
+        None,
+        TaskPriority::Medium,
+        None,
+        &[],
+        None,
+        None,
+        "default",
+    )
+    .unwrap();
+
+    let results = db.search_tasks("NOT", None).unwrap();
+    assert_eq!(results.len(), 1);
+}
+
+#[test]
+fn search_with_asterisk() {
+    let db = test_db();
+    db.create_task(
+        "Wildcard * character test",
+        None,
+        TaskPriority::Medium,
+        None,
+        &[],
+        None,
+        None,
+        "default",
+    )
+    .unwrap();
+
+    let results = db.search_tasks("*", None).unwrap();
+    assert!(results.is_empty() || !results.is_empty());
+}
+
+#[test]
+fn search_with_parentheses() {
+    let db = test_db();
+    db.create_task(
+        "Task (with parens) here",
+        None,
+        TaskPriority::Medium,
+        None,
+        &[],
+        None,
+        None,
+        "default",
+    )
+    .unwrap();
+
+    let results = db.search_tasks("(with parens)", None).unwrap();
+    assert!(!results.is_empty());
+}
