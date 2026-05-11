@@ -205,6 +205,13 @@ pub struct TaskTemplate {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NamespaceInfo {
+    pub namespace: String,
+    pub task_count: i64,
+    pub last_activity: String,
+}
+
 impl fmt::Display for Task {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "ID:          {}", self.id)?;

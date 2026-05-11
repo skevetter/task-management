@@ -496,4 +496,40 @@ impl TaskMcpServer {
             serde_json::to_string(&template).unwrap(),
         )]))
     }
+
+    #[tool(description = "List all namespaces with task counts and last activity")]
+    fn list_namespaces(
+        &self,
+        #[allow(unused_variables)] Parameters(params): Parameters<ListNamespacesParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let db = self.db.lock().unwrap();
+        let namespaces = db
+            .list_namespaces()
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string(&namespaces).unwrap(),
+        )]))
+    }
+
+    #[tool(description = "Prune stale open tasks older than stale_days by cancelling them")]
+    fn prune_stale_tasks(
+        &self,
+        Parameters(params): Parameters<PruneStaleTasksParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let actor = self.resolve_actor(params.actor);
+
+        let db = self.db.lock().unwrap();
+        let pruned_ids = db
+            .prune_stale_tasks(
+                params.stale_days,
+                params.namespace.as_deref(),
+                actor.as_deref(),
+            )
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::json!({"pruned": pruned_ids}).to_string(),
+        )]))
+    }
 }

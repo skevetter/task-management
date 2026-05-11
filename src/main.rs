@@ -143,6 +143,15 @@ enum Commands {
         #[arg(long)]
         query: String,
     },
+    Namespaces,
+    Prune {
+        #[arg(long)]
+        stale_days: i64,
+        #[arg(long)]
+        namespace: Option<String>,
+        #[arg(long)]
+        actor: Option<String>,
+    },
     Serve {
         #[arg(long, default_value = "stdio")]
         transport: String,
@@ -605,6 +614,54 @@ fn main() {
                     );
                 }
                 println!("\n{} result(s)", results.len());
+            }
+        }
+        Commands::Namespaces => {
+            let namespaces = db.list_namespaces().unwrap_or_else(|e| {
+                eprintln!("Failed to list namespaces: {e}");
+                std::process::exit(1);
+            });
+            if json {
+                println!("{}", serde_json::to_string(&namespaces).unwrap());
+            } else if namespaces.is_empty() {
+                println!("No namespaces found.");
+            } else {
+                println!("{:<30} {:<10} LAST ACTIVITY", "NAMESPACE", "TASKS");
+                println!("{}", "-".repeat(60));
+                for ns in &namespaces {
+                    println!(
+                        "{:<30} {:<10} {}",
+                        ns.namespace, ns.task_count, ns.last_activity
+                    );
+                }
+                println!("\n{} namespace(s)", namespaces.len());
+            }
+        }
+        Commands::Prune {
+            stale_days,
+            namespace: prune_ns,
+            actor,
+        } => {
+            let effective_ns = prune_ns.as_deref().or(namespace);
+            let pruned = db
+                .prune_stale_tasks(stale_days, effective_ns, actor.as_deref())
+                .unwrap_or_else(|e| {
+                    eprintln!("Failed to prune tasks: {e}");
+                    std::process::exit(1);
+                });
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string(&serde_json::json!({"pruned": pruned})).unwrap()
+                );
+            } else if pruned.is_empty() {
+                println!("No stale tasks found.");
+            } else {
+                println!("Pruned {} task(s):", pruned.len());
+                for id in &pruned {
+                    let short_id = if id.len() > 8 { &id[..8] } else { id };
+                    println!("  {short_id}");
+                }
             }
         }
         Commands::Serve {

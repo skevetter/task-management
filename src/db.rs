@@ -5,7 +5,8 @@ use rusqlite::{Connection, Result, params};
 use uuid::Uuid;
 
 use crate::models::{
-    LinkType, ListResult, Task, TaskNote, TaskPriority, TaskStatus, TaskTemplate, TimelineEvent,
+    LinkType, ListResult, NamespaceInfo, Task, TaskNote, TaskPriority, TaskStatus, TaskTemplate,
+    TimelineEvent,
 };
 
 pub struct Database {
@@ -13,6 +14,12 @@ pub struct Database {
 }
 
 impl Database {
+    #[doc(hidden)]
+    #[allow(dead_code)]
+    pub fn conn_for_test(&self) -> &Connection {
+        &self.conn
+    }
+
     pub fn open(path: &str) -> Result<Self> {
         if path != ":memory:" {
             let db_path = Path::new(path);
@@ -1016,6 +1023,82 @@ impl Database {
             .execute("DELETE FROM task_templates WHERE name = ?1", params![name])
             .map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    pub fn list_namespaces(&self) -> Result<Vec<NamespaceInfo>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT namespace, COUNT(*) as task_count, MAX(updated_at) as last_activity
+             FROM tasks GROUP BY namespace ORDER BY task_count DESC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(NamespaceInfo {
+                namespace: row.get(0)?,
+                task_count: row.get(1)?,
+                last_activity: row.get(2)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn prune_stale_tasks(
+        &self,
+        stale_days: i64,
+        namespace: Option<&str>,
+        actor: Option<&str>,
+    ) -> Result<Vec<String>> {
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(stale_days);
+        let cutoff_str = cutoff.to_rfc3339();
+
+        let mut sql =
+            String::from("SELECT id FROM tasks WHERE status = 'open' AND updated_at < ?1");
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> =
+            vec![Box::new(cutoff_str.clone())];
+        if let Some(ns) = namespace {
+            sql.push_str(" AND namespace = ?2");
+            param_values.push(Box::new(ns.to_string()));
+        }
+
+        let params: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = self.conn.prepare(&sql)?;
+        let stale_ids: Vec<String> = stmt
+            .query_map(params.as_slice(), |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        if stale_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        self.conn.execute("BEGIN IMMEDIATE", [])?;
+        let result = (|| -> Result<Vec<String>> {
+            let now = Utc::now().to_rfc3339();
+            for id in &stale_ids {
+                self.conn.execute(
+                    "UPDATE tasks SET status = 'cancelled', updated_at = ?1 WHERE id = ?2",
+                    params![now, id],
+                )?;
+                self.insert_timeline_event(
+                    id,
+                    "status_changed",
+                    Some("open"),
+                    "cancelled",
+                    actor,
+                    &now,
+                )?;
+            }
+            Ok(stale_ids)
+        })();
+        match result {
+            Ok(ids) => {
+                self.conn.execute("COMMIT", [])?;
+                Ok(ids)
+            }
+            Err(e) => {
+                let _ = self.conn.execute("ROLLBACK", []);
+                Err(e)
+            }
+        }
     }
 
     pub fn create_task_from_template(

@@ -117,3 +117,13 @@ pub struct SearchTasksParams {
     pub query: String,
     pub namespace: Option<String>,
 }
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct ListNamespacesParams {}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct PruneStaleTasksParams {
+    pub stale_days: i64,
+    pub namespace: Option<String>,
+    pub actor: Option<String>,
+}
