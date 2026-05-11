@@ -139,6 +139,10 @@ enum Commands {
         #[command(subcommand)]
         command: TemplateCommands,
     },
+    Search {
+        #[arg(long)]
+        query: String,
+    },
     Serve {
         #[arg(long, default_value = "stdio")]
         transport: String,
@@ -565,6 +569,42 @@ fn main() {
                 if !events.is_empty() {
                     println!("{} event(s)", events.len());
                 }
+            }
+        }
+        Commands::Search { query } => {
+            let results = db.search_tasks(&query, namespace).unwrap_or_else(|e| {
+                eprintln!("Failed to search tasks: {e}");
+                std::process::exit(1);
+            });
+            if json {
+                println!("{}", serde_json::to_string(&results).unwrap());
+            } else if results.is_empty() {
+                println!("No tasks found.");
+            } else {
+                let header = format!(
+                    "{:<10} {:<30} {:<14} {:<10} {}",
+                    "ID", "TITLE", "STATUS", "PRIORITY", "ASSIGNEE"
+                );
+                println!("{header}");
+                println!("{}", "-".repeat(76));
+                for task in &results {
+                    let short_id = if task.id.len() > 8 {
+                        &task.id[..8]
+                    } else {
+                        &task.id
+                    };
+                    let title = if task.title.len() > 28 {
+                        format!("{}...", &task.title[..25])
+                    } else {
+                        task.title.clone()
+                    };
+                    let assignee_str = task.assignee.as_deref().unwrap_or("-");
+                    println!(
+                        "{:<10} {:<30} {:<14} {:<10} {}",
+                        short_id, title, task.status, task.priority, assignee_str
+                    );
+                }
+                println!("\n{} result(s)", results.len());
             }
         }
         Commands::Serve {

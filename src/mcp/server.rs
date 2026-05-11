@@ -462,6 +462,23 @@ impl TaskMcpServer {
         )]))
     }
 
+    #[tool(description = "Full-text search across task titles and descriptions")]
+    fn search_tasks(
+        &self,
+        Parameters(params): Parameters<SearchTasksParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ns = self.resolve_namespace(&params.namespace);
+
+        let db = self.db.lock().unwrap();
+        let tasks = db
+            .search_tasks(&params.query, ns)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string(&tasks).unwrap(),
+        )]))
+    }
+
     #[tool(description = "Show details of a specific task template")]
     fn show_template(
         &self,

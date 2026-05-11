@@ -170,6 +170,22 @@ impl Database {
             )?;
         }
 
+        if max_version < 6 {
+            conn.execute_batch(
+                "BEGIN IMMEDIATE;
+                 CREATE VIRTUAL TABLE IF NOT EXISTS tasks_fts USING fts5(
+                     task_id UNINDEXED,
+                     title,
+                     description,
+                     namespace UNINDEXED
+                 );
+                 INSERT INTO tasks_fts (task_id, title, description, namespace)
+                     SELECT id, title, COALESCE(description, ''), namespace FROM tasks;
+                 INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (6, datetime('now'));
+                 COMMIT;",
+            )?;
+        }
+
         Ok(Self { conn })
     }
 
@@ -208,6 +224,11 @@ impl Database {
                     now,
                     namespace,
                 ],
+            )?;
+
+            self.conn.execute(
+                "INSERT INTO tasks_fts (task_id, title, description, namespace) VALUES (?1, ?2, ?3, ?4)",
+                params![id, title, description.unwrap_or(""), namespace],
             )?;
 
             self.insert_timeline_event(&id, "created", None, title, actor, &now)?;
@@ -396,6 +417,13 @@ impl Database {
                 now,
                 id,
             ],
+        )?;
+
+        self.conn
+            .execute("DELETE FROM tasks_fts WHERE task_id = ?1", params![id])?;
+        self.conn.execute(
+            "INSERT INTO tasks_fts (task_id, title, description, namespace) VALUES (?1, ?2, ?3, ?4)",
+            params![id, new_title, new_description.unwrap_or(""), task.namespace],
         )?;
 
         if task.status != new_status {
@@ -927,6 +955,53 @@ impl Database {
             builtin: false,
             created_at: now,
         })
+    }
+
+    pub fn search_tasks(&self, query: &str, namespace: Option<&str>) -> Result<Vec<Task>> {
+        let fts_query = format!("\"{}\"", query.replace('"', "\"\""));
+        let mut sql = String::from(
+            "SELECT t.id, t.title, t.description, t.status, t.priority, t.assignee, t.tags, t.parent_task_id, t.created_at, t.updated_at, t.namespace
+             FROM tasks t
+             INNER JOIN tasks_fts fts ON fts.task_id = t.id
+             WHERE tasks_fts MATCH ?1",
+        );
+        let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(fts_query)];
+        if let Some(ns) = namespace {
+            sql.push_str(" AND fts.namespace = ?2");
+            params_vec.push(Box::new(ns.to_string()));
+        }
+        sql.push_str(" ORDER BY rank");
+
+        let params: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params.as_slice(), |row| {
+            let status_str: String = row.get(3)?;
+            let priority_str: String = row.get(4)?;
+            let tags_str: String = row.get(6)?;
+
+            Ok(Task {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                description: row.get(2)?,
+                status: status_str.parse::<TaskStatus>().unwrap_or(TaskStatus::Open),
+                priority: priority_str
+                    .parse::<TaskPriority>()
+                    .unwrap_or(TaskPriority::Medium),
+                assignee: row.get(5)?,
+                tags: serde_json::from_str(&tags_str).unwrap_or_default(),
+                parent_task_id: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
+                namespace: row.get(10)?,
+            })
+        })?;
+
+        let mut tasks = Vec::new();
+        for row in rows {
+            tasks.push(row?);
+        }
+        Ok(tasks)
     }
 
     pub fn delete_template(&self, name: &str) -> std::result::Result<(), String> {

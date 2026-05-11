@@ -111,3 +111,9 @@ pub struct ListTemplatesParams {}
 pub struct ShowTemplateParams {
     pub name: String,
 }
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct SearchTasksParams {
+    pub query: String,
+    pub namespace: Option<String>,
+}
