@@ -72,6 +72,8 @@ enum Commands {
         parent: Option<String>,
         #[arg(long)]
         template: Option<String>,
+        #[arg(long)]
+        actor: Option<String>,
     },
     Show {
         id: String,
@@ -152,9 +154,13 @@ enum LinkCommands {
         #[arg(value_enum)]
         relationship: LinkType,
         target_id: String,
+        #[arg(long)]
+        actor: Option<String>,
     },
     Remove {
         link_id: String,
+        #[arg(long)]
+        actor: Option<String>,
     },
     List {
         task_id: String,
@@ -223,13 +229,14 @@ fn main() {
             tags,
             parent,
             template,
+            actor,
         } => {
             let task = if let Some(tmpl_name) = template {
                 db.create_task_from_template(
                     &tmpl_name,
                     &title,
                     namespace.unwrap_or("default"),
-                    None,
+                    actor.as_deref(),
                 )
                 .unwrap_or_else(|e| {
                     eprintln!("Failed to create task from template: {e}");
@@ -243,7 +250,7 @@ fn main() {
                     assignee.as_deref(),
                     &tags,
                     parent.as_deref(),
-                    None,
+                    actor.as_deref(),
                     namespace.unwrap_or("default"),
                 )
                 .unwrap_or_else(|e| {
@@ -680,11 +687,12 @@ fn main() {
                 task_id,
                 relationship,
                 target_id,
+                actor,
             } => {
                 let task_id = resolve(&task_id);
                 let target_id = resolve(&target_id);
                 let link_id = db
-                    .create_link(&task_id, &target_id, &relationship)
+                    .create_link(&task_id, &target_id, &relationship, actor.as_deref())
                     .unwrap_or_else(|e| {
                         eprintln!("Failed to create link: {e}");
                         std::process::exit(1);
@@ -712,15 +720,16 @@ fn main() {
                     println!("Link created: {short_id} ({task_id} {relationship} {target_id})");
                 }
             }
-            LinkCommands::Remove { link_id } => {
+            LinkCommands::Remove { link_id, actor } => {
                 let link_id = db.resolve_short_link_id(&link_id).unwrap_or_else(|e| {
                     eprintln!("{e}");
                     std::process::exit(1);
                 });
-                db.remove_link(&link_id).unwrap_or_else(|e| {
-                    eprintln!("Failed to remove link: {e}");
-                    std::process::exit(1);
-                });
+                db.remove_link(&link_id, actor.as_deref())
+                    .unwrap_or_else(|e| {
+                        eprintln!("Failed to remove link: {e}");
+                        std::process::exit(1);
+                    });
                 if json {
                     println!(
                         "{}",

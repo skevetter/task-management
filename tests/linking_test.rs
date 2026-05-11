@@ -96,7 +96,7 @@ fn create_and_list_link() {
         .unwrap();
 
     let link_id = db
-        .create_link(&t1.id, &t2.id, &LinkType::BlockedBy)
+        .create_link(&t1.id, &t2.id, &LinkType::BlockedBy, None)
         .unwrap();
     assert!(!link_id.is_empty());
 
@@ -136,7 +136,7 @@ fn inverse_relationship_from_target() {
         )
         .unwrap();
 
-    db.create_link(&t1.id, &t2.id, &LinkType::BlockedBy)
+    db.create_link(&t1.id, &t2.id, &LinkType::BlockedBy, None)
         .unwrap();
 
     let links_from_t2 = db.get_links(&t2.id).unwrap();
@@ -173,9 +173,11 @@ fn remove_link_db() {
         )
         .unwrap();
 
-    let link_id = db.create_link(&t1.id, &t2.id, &LinkType::Parent).unwrap();
+    let link_id = db
+        .create_link(&t1.id, &t2.id, &LinkType::Parent, None)
+        .unwrap();
 
-    db.remove_link(&link_id).unwrap();
+    db.remove_link(&link_id, None).unwrap();
 
     let links = db.get_links(&t1.id).unwrap();
     assert!(links.is_empty());
@@ -197,14 +199,14 @@ fn create_link_nonexistent_task() {
         )
         .unwrap();
 
-    let result = db.create_link(&t1.id, "nonexistent-id", &LinkType::BlockedBy);
+    let result = db.create_link(&t1.id, "nonexistent-id", &LinkType::BlockedBy, None);
     assert!(result.is_err());
 }
 
 #[test]
 fn remove_link_nonexistent() {
     let db = test_db();
-    let result = db.remove_link("nonexistent-link-id");
+    let result = db.remove_link("nonexistent-link-id", None);
     assert!(result.is_err());
 }
 
@@ -247,7 +249,7 @@ fn list_tasks_filter_blocked_by() {
     )
     .unwrap();
 
-    db.create_link(&blocked.id, &blocker.id, &LinkType::BlockedBy)
+    db.create_link(&blocked.id, &blocker.id, &LinkType::BlockedBy, None)
         .unwrap();
 
     let results = db
@@ -297,7 +299,8 @@ fn list_tasks_filter_blocks() {
         )
         .unwrap();
 
-    db.create_link(&t1.id, &t2.id, &LinkType::Blocks).unwrap();
+    db.create_link(&t1.id, &t2.id, &LinkType::Blocks, None)
+        .unwrap();
 
     let results = db
         .list_tasks(
@@ -346,7 +349,7 @@ fn list_tasks_filter_parent_via_links() {
         )
         .unwrap();
 
-    db.create_link(&child.id, &parent.id, &LinkType::Parent)
+    db.create_link(&child.id, &parent.id, &LinkType::Parent, None)
         .unwrap();
 
     let results = db
@@ -396,7 +399,7 @@ fn timeline_link_added() {
         )
         .unwrap();
 
-    db.create_link(&t1.id, &t2.id, &LinkType::BlockedBy)
+    db.create_link(&t1.id, &t2.id, &LinkType::BlockedBy, None)
         .unwrap();
 
     let events = db.get_timeline(&t1.id).unwrap();
@@ -436,9 +439,9 @@ fn timeline_link_removed() {
         .unwrap();
 
     let link_id = db
-        .create_link(&t1.id, &t2.id, &LinkType::RelatedTo)
+        .create_link(&t1.id, &t2.id, &LinkType::RelatedTo, None)
         .unwrap();
-    db.remove_link(&link_id).unwrap();
+    db.remove_link(&link_id, None).unwrap();
 
     let events = db.get_timeline(&t1.id).unwrap();
     let remove_event = events.iter().find(|e| e.event_type == "link_removed");
@@ -818,14 +821,14 @@ fn remove_link_with_4_char_prefix() {
         .unwrap();
 
     let link_id = db
-        .create_link(&t1.id, &t2.id, &LinkType::RelatedTo)
+        .create_link(&t1.id, &t2.id, &LinkType::RelatedTo, None)
         .unwrap();
     let prefix = &link_id[..4];
 
     let resolved = db.resolve_short_link_id(prefix).unwrap();
     assert_eq!(resolved, link_id);
 
-    db.remove_link(&resolved).unwrap();
+    db.remove_link(&resolved, None).unwrap();
     assert!(db.get_links(&t1.id).unwrap().is_empty());
 }
 
@@ -857,13 +860,15 @@ fn remove_link_with_8_char_prefix() {
         )
         .unwrap();
 
-    let link_id = db.create_link(&t1.id, &t2.id, &LinkType::Blocks).unwrap();
+    let link_id = db
+        .create_link(&t1.id, &t2.id, &LinkType::Blocks, None)
+        .unwrap();
     let prefix = &link_id[..8];
 
     let resolved = db.resolve_short_link_id(prefix).unwrap();
     assert_eq!(resolved, link_id);
 
-    db.remove_link(&resolved).unwrap();
+    db.remove_link(&resolved, None).unwrap();
     assert!(db.get_links(&t1.id).unwrap().is_empty());
 }
 
@@ -895,12 +900,14 @@ fn remove_link_with_full_uuid() {
         )
         .unwrap();
 
-    let link_id = db.create_link(&t1.id, &t2.id, &LinkType::Parent).unwrap();
+    let link_id = db
+        .create_link(&t1.id, &t2.id, &LinkType::Parent, None)
+        .unwrap();
 
     let resolved = db.resolve_short_link_id(&link_id).unwrap();
     assert_eq!(resolved, link_id);
 
-    db.remove_link(&resolved).unwrap();
+    db.remove_link(&resolved, None).unwrap();
     assert!(db.get_links(&t1.id).unwrap().is_empty());
 }
 
@@ -928,7 +935,9 @@ fn cli_link_remove_short_prefix() {
     let t2 = create_task_via_cli(db_path, "Task Beta");
 
     let db = Database::open(db_path).unwrap();
-    let link_id = db.create_link(&t1, &t2, &LinkType::RelatedTo).unwrap();
+    let link_id = db
+        .create_link(&t1, &t2, &LinkType::RelatedTo, None)
+        .unwrap();
     drop(db);
 
     let prefix_8 = &link_id[..8];
@@ -943,4 +952,205 @@ fn cli_link_remove_short_prefix() {
         .assert()
         .success()
         .stdout(predicate::str::contains("No links found"));
+}
+
+// --- Actor passthrough tests (TMU-001 T4) ---
+
+#[test]
+fn create_link_with_actor_records_actor_on_timeline() {
+    let db = test_db();
+    let t1 = db
+        .create_task(
+            "A",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
+        .unwrap();
+    let t2 = db
+        .create_task(
+            "B",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
+        .unwrap();
+
+    db.create_link(&t1.id, &t2.id, &LinkType::BlockedBy, Some("agent-007"))
+        .unwrap();
+
+    let events = db.get_timeline(&t1.id).unwrap();
+    let link_event = events
+        .iter()
+        .find(|e| e.event_type == "link_added")
+        .unwrap();
+    assert_eq!(link_event.actor.as_deref(), Some("agent-007"));
+}
+
+#[test]
+fn remove_link_with_actor_records_actor_on_timeline() {
+    let db = test_db();
+    let t1 = db
+        .create_task(
+            "A",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
+        .unwrap();
+    let t2 = db
+        .create_task(
+            "B",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
+        .unwrap();
+
+    let link_id = db
+        .create_link(&t1.id, &t2.id, &LinkType::RelatedTo, None)
+        .unwrap();
+    db.remove_link(&link_id, Some("agent-008")).unwrap();
+
+    let events = db.get_timeline(&t1.id).unwrap();
+    let remove_event = events
+        .iter()
+        .find(|e| e.event_type == "link_removed")
+        .unwrap();
+    assert_eq!(remove_event.actor.as_deref(), Some("agent-008"));
+}
+
+#[test]
+fn create_task_with_parent_and_actor_records_actor_on_link_event() {
+    let db = test_db();
+    let parent = db
+        .create_task(
+            "Parent",
+            None,
+            TaskPriority::High,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
+        .unwrap();
+    let child = db
+        .create_task(
+            "Child",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            Some(&parent.id),
+            Some("agent-009"),
+            "default",
+        )
+        .unwrap();
+
+    let events = db.get_timeline(&child.id).unwrap();
+    let link_event = events
+        .iter()
+        .find(|e| e.event_type == "link_added")
+        .unwrap();
+    assert_eq!(link_event.actor.as_deref(), Some("agent-009"));
+    assert!(link_event.new_value.contains("parent:"));
+}
+
+#[test]
+fn create_link_without_actor_still_works() {
+    let db = test_db();
+    let t1 = db
+        .create_task(
+            "A",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
+        .unwrap();
+    let t2 = db
+        .create_task(
+            "B",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
+        .unwrap();
+
+    let link_id = db
+        .create_link(&t1.id, &t2.id, &LinkType::Blocks, None)
+        .unwrap();
+    assert!(!link_id.is_empty());
+
+    let events = db.get_timeline(&t1.id).unwrap();
+    let link_event = events
+        .iter()
+        .find(|e| e.event_type == "link_added")
+        .unwrap();
+    assert!(link_event.actor.is_none());
+}
+
+#[test]
+fn remove_link_without_actor_still_works() {
+    let db = test_db();
+    let t1 = db
+        .create_task(
+            "A",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
+        .unwrap();
+    let t2 = db
+        .create_task(
+            "B",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            None,
+            None,
+            "default",
+        )
+        .unwrap();
+
+    let link_id = db
+        .create_link(&t1.id, &t2.id, &LinkType::Parent, None)
+        .unwrap();
+    db.remove_link(&link_id, None).unwrap();
+
+    let events = db.get_timeline(&t1.id).unwrap();
+    let remove_event = events
+        .iter()
+        .find(|e| e.event_type == "link_removed")
+        .unwrap();
+    assert!(remove_event.actor.is_none());
 }

@@ -220,7 +220,7 @@ impl Database {
                     params![link_id, &id, pid, &now],
                 )?;
                 let new_value = format!("parent:{pid}");
-                self.insert_timeline_event(&id, "link_added", None, &new_value, None, &now)?;
+                self.insert_timeline_event(&id, "link_added", None, &new_value, actor, &now)?;
             }
 
             Ok(())
@@ -739,6 +739,7 @@ impl Database {
         source_id: &str,
         target_id: &str,
         link_type: &LinkType,
+        actor: Option<&str>,
     ) -> Result<String> {
         self.get_task(source_id)?
             .ok_or(rusqlite::Error::QueryReturnedNoRows)?;
@@ -757,7 +758,7 @@ impl Database {
                 params![id, source_id, target_id, link_type.to_string(), now],
             )?;
             let new_value = format!("{link_type}:{target_id}");
-            self.insert_timeline_event(source_id, "link_added", None, &new_value, None, &now)?;
+            self.insert_timeline_event(source_id, "link_added", None, &new_value, actor, &now)?;
             Ok(())
         })();
 
@@ -774,7 +775,7 @@ impl Database {
         Ok(id)
     }
 
-    pub fn remove_link(&self, link_id: &str) -> Result<()> {
+    pub fn remove_link(&self, link_id: &str, actor: Option<&str>) -> Result<()> {
         let link: (String, String, String) = self.conn.query_row(
             "SELECT source_id, target_id, link_type FROM task_links WHERE id = ?1",
             params![link_id],
@@ -789,7 +790,7 @@ impl Database {
         let result = (|| -> Result<()> {
             self.conn
                 .execute("DELETE FROM task_links WHERE id = ?1", params![link_id])?;
-            self.insert_timeline_event(&link.0, "link_removed", Some(&old_value), "", None, &now)?;
+            self.insert_timeline_event(&link.0, "link_removed", Some(&old_value), "", actor, &now)?;
             Ok(())
         })();
 
