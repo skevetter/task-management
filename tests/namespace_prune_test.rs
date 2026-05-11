@@ -240,3 +240,17 @@ fn prune_with_actor_records_actor_on_timeline() {
     assert_eq!(status_events.len(), 1);
     assert_eq!(status_events[0].actor.as_deref(), Some("cleanup-bot"));
 }
+
+#[test]
+fn prune_rejects_zero_stale_days() {
+    let db = test_db();
+    let result = db.prune_stale_tasks(0, None, None);
+    assert!(result.is_err());
+}
+
+#[test]
+fn prune_rejects_negative_stale_days() {
+    let db = test_db();
+    let result = db.prune_stale_tasks(-1, None, None);
+    assert!(result.is_err());
+}

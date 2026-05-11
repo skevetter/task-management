@@ -14,8 +14,7 @@ pub struct Database {
 }
 
 impl Database {
-    #[doc(hidden)]
-    #[allow(dead_code)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn conn_for_test(&self) -> &Connection {
         &self.conn
     }
@@ -411,57 +410,73 @@ impl Database {
         let new_tags = tags.map(|t| t.to_vec()).unwrap_or(task.tags.clone());
         let tags_json = serde_json::to_string(&new_tags).unwrap_or_else(|_| "[]".to_string());
 
-        self.conn.execute(
-            "UPDATE tasks SET title = ?1, description = ?2, status = ?3, priority = ?4, assignee = ?5, tags = ?6, updated_at = ?7
-             WHERE id = ?8",
-            params![
-                new_title,
-                new_description,
-                new_status.to_string(),
-                new_priority.to_string(),
-                new_assignee,
-                tags_json,
-                now,
-                id,
-            ],
-        )?;
+        self.conn.execute("BEGIN IMMEDIATE", [])?;
 
-        self.conn
-            .execute("DELETE FROM tasks_fts WHERE task_id = ?1", params![id])?;
-        self.conn.execute(
-            "INSERT INTO tasks_fts (task_id, title, description, namespace) VALUES (?1, ?2, ?3, ?4)",
-            params![id, new_title, new_description.unwrap_or(""), task.namespace],
-        )?;
+        let result = (|| -> Result<()> {
+            self.conn.execute(
+                "UPDATE tasks SET title = ?1, description = ?2, status = ?3, priority = ?4, assignee = ?5, tags = ?6, updated_at = ?7
+                 WHERE id = ?8",
+                params![
+                    new_title,
+                    new_description,
+                    new_status.to_string(),
+                    new_priority.to_string(),
+                    new_assignee,
+                    tags_json,
+                    now,
+                    id,
+                ],
+            )?;
 
-        if task.status != new_status {
-            self.insert_timeline_event(
-                id,
-                "status_changed",
-                Some(&task.status.to_string()),
-                &new_status.to_string(),
-                actor,
-                &now,
+            self.conn
+                .execute("DELETE FROM tasks_fts WHERE task_id = ?1", params![id])?;
+            self.conn.execute(
+                "INSERT INTO tasks_fts (task_id, title, description, namespace) VALUES (?1, ?2, ?3, ?4)",
+                params![id, new_title, new_description.unwrap_or(""), task.namespace],
             )?;
-        }
-        if task.assignee.as_deref() != new_assignee {
-            self.insert_timeline_event(
-                id,
-                "assignee_changed",
-                task.assignee.as_deref(),
-                new_assignee.unwrap_or(""),
-                actor,
-                &now,
-            )?;
-        }
-        if task.priority != new_priority {
-            self.insert_timeline_event(
-                id,
-                "priority_changed",
-                Some(&task.priority.to_string()),
-                &new_priority.to_string(),
-                actor,
-                &now,
-            )?;
+
+            if task.status != new_status {
+                self.insert_timeline_event(
+                    id,
+                    "status_changed",
+                    Some(&task.status.to_string()),
+                    &new_status.to_string(),
+                    actor,
+                    &now,
+                )?;
+            }
+            if task.assignee.as_deref() != new_assignee {
+                self.insert_timeline_event(
+                    id,
+                    "assignee_changed",
+                    task.assignee.as_deref(),
+                    new_assignee.unwrap_or(""),
+                    actor,
+                    &now,
+                )?;
+            }
+            if task.priority != new_priority {
+                self.insert_timeline_event(
+                    id,
+                    "priority_changed",
+                    Some(&task.priority.to_string()),
+                    &new_priority.to_string(),
+                    actor,
+                    &now,
+                )?;
+            }
+
+            Ok(())
+        })();
+
+        match result {
+            Ok(()) => {
+                self.conn.execute("COMMIT", [])?;
+            }
+            Err(e) => {
+                let _ = self.conn.execute("ROLLBACK", []);
+                return Err(e);
+            }
         }
 
         Ok(Some(Task {
@@ -1046,11 +1061,19 @@ impl Database {
         namespace: Option<&str>,
         actor: Option<&str>,
     ) -> Result<Vec<String>> {
+        if stale_days <= 0 {
+            return Err(rusqlite::Error::InvalidParameterName(
+                "stale_days must be positive".to_string(),
+            ));
+        }
         let cutoff = chrono::Utc::now() - chrono::Duration::days(stale_days);
         let cutoff_str = cutoff.to_rfc3339();
 
-        let mut sql =
-            String::from("SELECT id FROM tasks WHERE status = 'open' AND updated_at < ?1");
+        let status_open = TaskStatus::Open.to_string();
+        let mut sql = format!(
+            "SELECT id FROM tasks WHERE status = '{}' AND updated_at < ?1",
+            status_open
+        );
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> =
             vec![Box::new(cutoff_str.clone())];
         if let Some(ns) = namespace {
@@ -1063,8 +1086,7 @@ impl Database {
         let mut stmt = self.conn.prepare(&sql)?;
         let stale_ids: Vec<String> = stmt
             .query_map(params.as_slice(), |row| row.get(0))?
-            .filter_map(|r| r.ok())
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
 
         if stale_ids.is_empty() {
             return Ok(vec![]);
@@ -1073,16 +1095,17 @@ impl Database {
         self.conn.execute("BEGIN IMMEDIATE", [])?;
         let result = (|| -> Result<Vec<String>> {
             let now = Utc::now().to_rfc3339();
+            let status_cancelled = TaskStatus::Cancelled.to_string();
             for id in &stale_ids {
                 self.conn.execute(
-                    "UPDATE tasks SET status = 'cancelled', updated_at = ?1 WHERE id = ?2",
-                    params![now, id],
+                    "UPDATE tasks SET status = ?1, updated_at = ?2 WHERE id = ?3",
+                    params![status_cancelled, now, id],
                 )?;
                 self.insert_timeline_event(
                     id,
                     "status_changed",
-                    Some("open"),
-                    "cancelled",
+                    Some(&status_open),
+                    &status_cancelled,
                     actor,
                     &now,
                 )?;
