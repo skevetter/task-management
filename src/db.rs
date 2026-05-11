@@ -1,9 +1,12 @@
+use std::path::Path;
+
 use chrono::Utc;
 use rusqlite::{Connection, Result, params};
 use uuid::Uuid;
 
 use crate::models::{
-    LinkType, ListResult, Task, TaskNote, TaskPriority, TaskStatus, TaskTemplate, TimelineEvent,
+    LinkType, ListResult, NamespaceInfo, Task, TaskNote, TaskPriority, TaskStatus, TaskTemplate,
+    TimelineEvent,
 };
 
 pub struct Database {
@@ -11,7 +14,23 @@ pub struct Database {
 }
 
 impl Database {
+    #[doc(hidden)]
+    #[allow(dead_code)]
+    pub fn conn_for_test(&self) -> &Connection {
+        &self.conn
+    }
+
     pub fn open(path: &str) -> Result<Self> {
+        if path != ":memory:" {
+            let db_path = Path::new(path);
+            if db_path.exists() {
+                let backup_path = format!("{}.bak", path);
+                if let Err(e) = std::fs::copy(path, &backup_path) {
+                    eprintln!("Warning: failed to create backup: {}", e);
+                }
+            }
+        }
+
         let conn = Connection::open(path)?;
         conn.execute_batch(
             "PRAGMA foreign_keys = ON;
@@ -147,6 +166,33 @@ impl Database {
             }
         }
 
+        if max_version < 5 {
+            conn.execute_batch(
+                "BEGIN IMMEDIATE;
+                 UPDATE tasks SET status = 'cancelled' WHERE status = 'closed';
+                 UPDATE timeline_events SET new_value = 'cancelled' WHERE event_type = 'status_changed' AND new_value = 'closed';
+                 UPDATE timeline_events SET old_value = 'cancelled' WHERE event_type = 'status_changed' AND old_value = 'closed';
+                 INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (5, datetime('now'));
+                 COMMIT;",
+            )?;
+        }
+
+        if max_version < 6 {
+            conn.execute_batch(
+                "BEGIN IMMEDIATE;
+                 CREATE VIRTUAL TABLE IF NOT EXISTS tasks_fts USING fts5(
+                     task_id UNINDEXED,
+                     title,
+                     description,
+                     namespace UNINDEXED
+                 );
+                 INSERT INTO tasks_fts (task_id, title, description, namespace)
+                     SELECT id, title, COALESCE(description, ''), namespace FROM tasks;
+                 INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (6, datetime('now'));
+                 COMMIT;",
+            )?;
+        }
+
         Ok(Self { conn })
     }
 
@@ -187,6 +233,11 @@ impl Database {
                 ],
             )?;
 
+            self.conn.execute(
+                "INSERT INTO tasks_fts (task_id, title, description, namespace) VALUES (?1, ?2, ?3, ?4)",
+                params![id, title, description.unwrap_or(""), namespace],
+            )?;
+
             self.insert_timeline_event(&id, "created", None, title, actor, &now)?;
 
             if let Some(pid) = parent_task_id {
@@ -197,7 +248,7 @@ impl Database {
                     params![link_id, &id, pid, &now],
                 )?;
                 let new_value = format!("parent:{pid}");
-                self.insert_timeline_event(&id, "link_added", None, &new_value, None, &now)?;
+                self.insert_timeline_event(&id, "link_added", None, &new_value, actor, &now)?;
             }
 
             Ok(())
@@ -373,6 +424,13 @@ impl Database {
                 now,
                 id,
             ],
+        )?;
+
+        self.conn
+            .execute("DELETE FROM tasks_fts WHERE task_id = ?1", params![id])?;
+        self.conn.execute(
+            "INSERT INTO tasks_fts (task_id, title, description, namespace) VALUES (?1, ?2, ?3, ?4)",
+            params![id, new_title, new_description.unwrap_or(""), task.namespace],
         )?;
 
         if task.status != new_status {
@@ -716,6 +774,7 @@ impl Database {
         source_id: &str,
         target_id: &str,
         link_type: &LinkType,
+        actor: Option<&str>,
     ) -> Result<String> {
         self.get_task(source_id)?
             .ok_or(rusqlite::Error::QueryReturnedNoRows)?;
@@ -734,7 +793,7 @@ impl Database {
                 params![id, source_id, target_id, link_type.to_string(), now],
             )?;
             let new_value = format!("{link_type}:{target_id}");
-            self.insert_timeline_event(source_id, "link_added", None, &new_value, None, &now)?;
+            self.insert_timeline_event(source_id, "link_added", None, &new_value, actor, &now)?;
             Ok(())
         })();
 
@@ -751,7 +810,7 @@ impl Database {
         Ok(id)
     }
 
-    pub fn remove_link(&self, link_id: &str) -> Result<()> {
+    pub fn remove_link(&self, link_id: &str, actor: Option<&str>) -> Result<()> {
         let link: (String, String, String) = self.conn.query_row(
             "SELECT source_id, target_id, link_type FROM task_links WHERE id = ?1",
             params![link_id],
@@ -766,7 +825,7 @@ impl Database {
         let result = (|| -> Result<()> {
             self.conn
                 .execute("DELETE FROM task_links WHERE id = ?1", params![link_id])?;
-            self.insert_timeline_event(&link.0, "link_removed", Some(&old_value), "", None, &now)?;
+            self.insert_timeline_event(&link.0, "link_removed", Some(&old_value), "", actor, &now)?;
             Ok(())
         })();
 
@@ -905,6 +964,53 @@ impl Database {
         })
     }
 
+    pub fn search_tasks(&self, query: &str, namespace: Option<&str>) -> Result<Vec<Task>> {
+        let fts_query = format!("\"{}\"", query.replace('"', "\"\""));
+        let mut sql = String::from(
+            "SELECT t.id, t.title, t.description, t.status, t.priority, t.assignee, t.tags, t.parent_task_id, t.created_at, t.updated_at, t.namespace
+             FROM tasks t
+             INNER JOIN tasks_fts fts ON fts.task_id = t.id
+             WHERE tasks_fts MATCH ?1",
+        );
+        let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(fts_query)];
+        if let Some(ns) = namespace {
+            sql.push_str(" AND fts.namespace = ?2");
+            params_vec.push(Box::new(ns.to_string()));
+        }
+        sql.push_str(" ORDER BY rank");
+
+        let params: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params.as_slice(), |row| {
+            let status_str: String = row.get(3)?;
+            let priority_str: String = row.get(4)?;
+            let tags_str: String = row.get(6)?;
+
+            Ok(Task {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                description: row.get(2)?,
+                status: status_str.parse::<TaskStatus>().unwrap_or(TaskStatus::Open),
+                priority: priority_str
+                    .parse::<TaskPriority>()
+                    .unwrap_or(TaskPriority::Medium),
+                assignee: row.get(5)?,
+                tags: serde_json::from_str(&tags_str).unwrap_or_default(),
+                parent_task_id: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
+                namespace: row.get(10)?,
+            })
+        })?;
+
+        let mut tasks = Vec::new();
+        for row in rows {
+            tasks.push(row?);
+        }
+        Ok(tasks)
+    }
+
     pub fn delete_template(&self, name: &str) -> std::result::Result<(), String> {
         let tmpl = self.get_template(name).map_err(|e| e.to_string())?;
         let Some(tmpl) = tmpl else {
@@ -917,6 +1023,82 @@ impl Database {
             .execute("DELETE FROM task_templates WHERE name = ?1", params![name])
             .map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    pub fn list_namespaces(&self) -> Result<Vec<NamespaceInfo>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT namespace, COUNT(*) as task_count, MAX(updated_at) as last_activity
+             FROM tasks GROUP BY namespace ORDER BY task_count DESC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(NamespaceInfo {
+                namespace: row.get(0)?,
+                task_count: row.get(1)?,
+                last_activity: row.get(2)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn prune_stale_tasks(
+        &self,
+        stale_days: i64,
+        namespace: Option<&str>,
+        actor: Option<&str>,
+    ) -> Result<Vec<String>> {
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(stale_days);
+        let cutoff_str = cutoff.to_rfc3339();
+
+        let mut sql =
+            String::from("SELECT id FROM tasks WHERE status = 'open' AND updated_at < ?1");
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> =
+            vec![Box::new(cutoff_str.clone())];
+        if let Some(ns) = namespace {
+            sql.push_str(" AND namespace = ?2");
+            param_values.push(Box::new(ns.to_string()));
+        }
+
+        let params: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = self.conn.prepare(&sql)?;
+        let stale_ids: Vec<String> = stmt
+            .query_map(params.as_slice(), |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        if stale_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        self.conn.execute("BEGIN IMMEDIATE", [])?;
+        let result = (|| -> Result<Vec<String>> {
+            let now = Utc::now().to_rfc3339();
+            for id in &stale_ids {
+                self.conn.execute(
+                    "UPDATE tasks SET status = 'cancelled', updated_at = ?1 WHERE id = ?2",
+                    params![now, id],
+                )?;
+                self.insert_timeline_event(
+                    id,
+                    "status_changed",
+                    Some("open"),
+                    "cancelled",
+                    actor,
+                    &now,
+                )?;
+            }
+            Ok(stale_ids)
+        })();
+        match result {
+            Ok(ids) => {
+                self.conn.execute("COMMIT", [])?;
+                Ok(ids)
+            }
+            Err(e) => {
+                let _ = self.conn.execute("ROLLBACK", []);
+                Err(e)
+            }
+        }
     }
 
     pub fn create_task_from_template(

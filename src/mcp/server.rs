@@ -34,12 +34,7 @@ impl TaskMcpServer {
     }
 
     fn resolve_namespace<'a>(&'a self, params_ns: &'a Option<String>) -> Option<&'a str> {
-        Some(
-            params_ns
-                .as_deref()
-                .or(self.default_namespace.as_deref())
-                .unwrap_or("default"),
-        )
+        params_ns.as_deref().or(self.default_namespace.as_deref())
     }
 
     fn resolve_id(&self, prefix: &str, namespace: Option<&str>) -> Result<String, ErrorData> {
@@ -306,10 +301,11 @@ impl TaskMcpServer {
             .relationship
             .parse()
             .map_err(|e: String| ErrorData::invalid_params(e, None))?;
+        let actor = self.resolve_actor(params.actor);
 
         let db = self.db.lock().unwrap();
         let link_id = db
-            .create_link(&source_id, &target_id, &link_type)
+            .create_link(&source_id, &target_id, &link_type, actor.as_deref())
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
         let target_title = db
@@ -415,11 +411,12 @@ impl TaskMcpServer {
         &self,
         Parameters(params): Parameters<UnlinkTasksParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        let actor = self.resolve_actor(params.actor);
         let db = self.db.lock().unwrap();
         let link_id = db
             .resolve_short_link_id(&params.link_id)
             .map_err(|e| ErrorData::invalid_params(e, None))?;
-        db.remove_link(&link_id)
+        db.remove_link(&link_id, actor.as_deref())
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
         Ok(CallToolResult::success(vec![Content::text(
@@ -465,6 +462,23 @@ impl TaskMcpServer {
         )]))
     }
 
+    #[tool(description = "Full-text search across task titles and descriptions")]
+    fn search_tasks(
+        &self,
+        Parameters(params): Parameters<SearchTasksParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ns = self.resolve_namespace(&params.namespace);
+
+        let db = self.db.lock().unwrap();
+        let tasks = db
+            .search_tasks(&params.query, ns)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string(&tasks).unwrap(),
+        )]))
+    }
+
     #[tool(description = "Show details of a specific task template")]
     fn show_template(
         &self,
@@ -480,6 +494,42 @@ impl TaskMcpServer {
 
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string(&template).unwrap(),
+        )]))
+    }
+
+    #[tool(description = "List all namespaces with task counts and last activity")]
+    fn list_namespaces(
+        &self,
+        #[allow(unused_variables)] Parameters(params): Parameters<ListNamespacesParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let db = self.db.lock().unwrap();
+        let namespaces = db
+            .list_namespaces()
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string(&namespaces).unwrap(),
+        )]))
+    }
+
+    #[tool(description = "Prune stale open tasks older than stale_days by cancelling them")]
+    fn prune_stale_tasks(
+        &self,
+        Parameters(params): Parameters<PruneStaleTasksParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let actor = self.resolve_actor(params.actor);
+
+        let db = self.db.lock().unwrap();
+        let pruned_ids = db
+            .prune_stale_tasks(
+                params.stale_days,
+                params.namespace.as_deref(),
+                actor.as_deref(),
+            )
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::json!({"pruned": pruned_ids}).to_string(),
         )]))
     }
 }

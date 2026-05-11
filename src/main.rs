@@ -72,6 +72,8 @@ enum Commands {
         parent: Option<String>,
         #[arg(long)]
         template: Option<String>,
+        #[arg(long)]
+        actor: Option<String>,
     },
     Show {
         id: String,
@@ -137,6 +139,19 @@ enum Commands {
         #[command(subcommand)]
         command: TemplateCommands,
     },
+    Search {
+        #[arg(long)]
+        query: String,
+    },
+    Namespaces,
+    Prune {
+        #[arg(long)]
+        stale_days: i64,
+        #[arg(long)]
+        namespace: Option<String>,
+        #[arg(long)]
+        actor: Option<String>,
+    },
     Serve {
         #[arg(long, default_value = "stdio")]
         transport: String,
@@ -152,9 +167,13 @@ enum LinkCommands {
         #[arg(value_enum)]
         relationship: LinkType,
         target_id: String,
+        #[arg(long)]
+        actor: Option<String>,
     },
     Remove {
         link_id: String,
+        #[arg(long)]
+        actor: Option<String>,
     },
     List {
         task_id: String,
@@ -223,13 +242,14 @@ fn main() {
             tags,
             parent,
             template,
+            actor,
         } => {
             let task = if let Some(tmpl_name) = template {
                 db.create_task_from_template(
                     &tmpl_name,
                     &title,
                     namespace.unwrap_or("default"),
-                    None,
+                    actor.as_deref(),
                 )
                 .unwrap_or_else(|e| {
                     eprintln!("Failed to create task from template: {e}");
@@ -243,7 +263,7 @@ fn main() {
                     assignee.as_deref(),
                     &tags,
                     parent.as_deref(),
-                    None,
+                    actor.as_deref(),
                     namespace.unwrap_or("default"),
                 )
                 .unwrap_or_else(|e| {
@@ -560,6 +580,90 @@ fn main() {
                 }
             }
         }
+        Commands::Search { query } => {
+            let results = db.search_tasks(&query, namespace).unwrap_or_else(|e| {
+                eprintln!("Failed to search tasks: {e}");
+                std::process::exit(1);
+            });
+            if json {
+                println!("{}", serde_json::to_string(&results).unwrap());
+            } else if results.is_empty() {
+                println!("No tasks found.");
+            } else {
+                let header = format!(
+                    "{:<10} {:<30} {:<14} {:<10} {}",
+                    "ID", "TITLE", "STATUS", "PRIORITY", "ASSIGNEE"
+                );
+                println!("{header}");
+                println!("{}", "-".repeat(76));
+                for task in &results {
+                    let short_id = if task.id.len() > 8 {
+                        &task.id[..8]
+                    } else {
+                        &task.id
+                    };
+                    let title = if task.title.len() > 28 {
+                        format!("{}...", &task.title[..25])
+                    } else {
+                        task.title.clone()
+                    };
+                    let assignee_str = task.assignee.as_deref().unwrap_or("-");
+                    println!(
+                        "{:<10} {:<30} {:<14} {:<10} {}",
+                        short_id, title, task.status, task.priority, assignee_str
+                    );
+                }
+                println!("\n{} result(s)", results.len());
+            }
+        }
+        Commands::Namespaces => {
+            let namespaces = db.list_namespaces().unwrap_or_else(|e| {
+                eprintln!("Failed to list namespaces: {e}");
+                std::process::exit(1);
+            });
+            if json {
+                println!("{}", serde_json::to_string(&namespaces).unwrap());
+            } else if namespaces.is_empty() {
+                println!("No namespaces found.");
+            } else {
+                println!("{:<30} {:<10} LAST ACTIVITY", "NAMESPACE", "TASKS");
+                println!("{}", "-".repeat(60));
+                for ns in &namespaces {
+                    println!(
+                        "{:<30} {:<10} {}",
+                        ns.namespace, ns.task_count, ns.last_activity
+                    );
+                }
+                println!("\n{} namespace(s)", namespaces.len());
+            }
+        }
+        Commands::Prune {
+            stale_days,
+            namespace: prune_ns,
+            actor,
+        } => {
+            let effective_ns = prune_ns.as_deref().or(namespace);
+            let pruned = db
+                .prune_stale_tasks(stale_days, effective_ns, actor.as_deref())
+                .unwrap_or_else(|e| {
+                    eprintln!("Failed to prune tasks: {e}");
+                    std::process::exit(1);
+                });
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string(&serde_json::json!({"pruned": pruned})).unwrap()
+                );
+            } else if pruned.is_empty() {
+                println!("No stale tasks found.");
+            } else {
+                println!("Pruned {} task(s):", pruned.len());
+                for id in &pruned {
+                    let short_id = if id.len() > 8 { &id[..8] } else { id };
+                    println!("  {short_id}");
+                }
+            }
+        }
         Commands::Serve {
             transport,
             namespace,
@@ -680,11 +784,12 @@ fn main() {
                 task_id,
                 relationship,
                 target_id,
+                actor,
             } => {
                 let task_id = resolve(&task_id);
                 let target_id = resolve(&target_id);
                 let link_id = db
-                    .create_link(&task_id, &target_id, &relationship)
+                    .create_link(&task_id, &target_id, &relationship, actor.as_deref())
                     .unwrap_or_else(|e| {
                         eprintln!("Failed to create link: {e}");
                         std::process::exit(1);
@@ -712,15 +817,16 @@ fn main() {
                     println!("Link created: {short_id} ({task_id} {relationship} {target_id})");
                 }
             }
-            LinkCommands::Remove { link_id } => {
+            LinkCommands::Remove { link_id, actor } => {
                 let link_id = db.resolve_short_link_id(&link_id).unwrap_or_else(|e| {
                     eprintln!("{e}");
                     std::process::exit(1);
                 });
-                db.remove_link(&link_id).unwrap_or_else(|e| {
-                    eprintln!("Failed to remove link: {e}");
-                    std::process::exit(1);
-                });
+                db.remove_link(&link_id, actor.as_deref())
+                    .unwrap_or_else(|e| {
+                        eprintln!("Failed to remove link: {e}");
+                        std::process::exit(1);
+                    });
                 if json {
                     println!(
                         "{}",

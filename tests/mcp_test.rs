@@ -419,7 +419,7 @@ fn test_mcp_list_tasks_pagination() {
 }
 
 #[test]
-fn test_mcp_list_tasks_no_namespace_returns_only_default() {
+fn test_mcp_list_tasks_no_namespace_returns_all() {
     let tmp = NamedTempFile::new().unwrap();
     let mut client = McpTestClient::new(tmp.path().to_str().unwrap());
 
@@ -432,11 +432,62 @@ fn test_mcp_list_tasks_no_namespace_returns_only_default() {
     let resp = client.call_tool("list_tasks", serde_json::json!({}));
     let result = extract_content(&resp);
 
-    assert_eq!(result["total"].as_i64().unwrap(), 1);
+    assert_eq!(result["total"].as_i64().unwrap(), 2);
     let tasks = result["tasks"].as_array().unwrap();
-    assert_eq!(tasks.len(), 1);
-    assert_eq!(tasks[0]["title"].as_str().unwrap(), "Default task");
-    assert_eq!(tasks[0]["namespace"].as_str().unwrap(), "default");
+    assert_eq!(tasks.len(), 2);
+}
+
+#[test]
+fn test_mcp_list_tasks_explicit_namespace_scopes_correctly() {
+    let tmp = NamedTempFile::new().unwrap();
+    let mut client = McpTestClient::new(tmp.path().to_str().unwrap());
+
+    client.call_tool(
+        "create_task",
+        serde_json::json!({"title": "Alpha", "namespace": "ns-x"}),
+    );
+    client.call_tool(
+        "create_task",
+        serde_json::json!({"title": "Beta", "namespace": "ns-y"}),
+    );
+    client.call_tool(
+        "create_task",
+        serde_json::json!({"title": "Gamma", "namespace": "ns-x"}),
+    );
+
+    let resp = client.call_tool("list_tasks", serde_json::json!({"namespace": "ns-x"}));
+    let result = extract_content(&resp);
+
+    assert_eq!(result["total"].as_i64().unwrap(), 2);
+    let tasks = result["tasks"].as_array().unwrap();
+    for t in tasks {
+        assert_eq!(t["namespace"].as_str().unwrap(), "ns-x");
+    }
+
+    let resp2 = client.call_tool("list_tasks", serde_json::json!({"namespace": "ns-y"}));
+    let result2 = extract_content(&resp2);
+
+    assert_eq!(result2["total"].as_i64().unwrap(), 1);
+    assert_eq!(
+        result2["tasks"].as_array().unwrap()[0]["title"]
+            .as_str()
+            .unwrap(),
+        "Beta"
+    );
+}
+
+#[test]
+fn test_mcp_create_task_no_namespace_defaults_to_default() {
+    let tmp = NamedTempFile::new().unwrap();
+    let mut client = McpTestClient::new(tmp.path().to_str().unwrap());
+
+    let resp = client.call_tool(
+        "create_task",
+        serde_json::json!({"title": "No namespace provided"}),
+    );
+    let task = extract_content(&resp);
+
+    assert_eq!(task["namespace"].as_str().unwrap(), "default");
 }
 
 #[test]

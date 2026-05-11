@@ -88,7 +88,7 @@ impl FromStr for TaskStatus {
             "in-progress" | "inprogress" | "in_progress" => Ok(Self::InProgress),
             "blocked" => Ok(Self::Blocked),
             "done" => Ok(Self::Done),
-            "cancelled" | "closed" => Ok(Self::Cancelled),
+            "cancelled" => Ok(Self::Cancelled),
             _ => Err(format!("unknown status: {s}")),
         }
     }
@@ -203,6 +203,13 @@ pub struct TaskTemplate {
     pub default_tags: Option<Vec<String>>,
     pub builtin: bool,
     pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NamespaceInfo {
+    pub namespace: String,
+    pub task_count: i64,
+    pub last_activity: String,
 }
 
 impl fmt::Display for Task {
