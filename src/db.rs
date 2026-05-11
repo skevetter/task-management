@@ -147,6 +147,17 @@ impl Database {
             }
         }
 
+        if max_version < 5 {
+            conn.execute_batch(
+                "BEGIN IMMEDIATE;
+                 UPDATE tasks SET status = 'cancelled' WHERE status = 'closed';
+                 UPDATE timeline_events SET new_value = 'cancelled' WHERE event_type = 'status_changed' AND new_value = 'closed';
+                 UPDATE timeline_events SET old_value = 'cancelled' WHERE event_type = 'status_changed' AND old_value = 'closed';
+                 INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (5, datetime('now'));
+                 COMMIT;",
+            )?;
+        }
+
         Ok(Self { conn })
     }
 

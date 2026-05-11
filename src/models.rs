@@ -88,7 +88,7 @@ impl FromStr for TaskStatus {
             "in-progress" | "inprogress" | "in_progress" => Ok(Self::InProgress),
             "blocked" => Ok(Self::Blocked),
             "done" => Ok(Self::Done),
-            "cancelled" | "closed" => Ok(Self::Cancelled),
+            "cancelled" => Ok(Self::Cancelled),
             _ => Err(format!("unknown status: {s}")),
         }
     }
