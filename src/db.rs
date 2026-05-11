@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use chrono::Utc;
 use rusqlite::{Connection, Result, params};
 use uuid::Uuid;
@@ -12,6 +14,16 @@ pub struct Database {
 
 impl Database {
     pub fn open(path: &str) -> Result<Self> {
+        if path != ":memory:" {
+            let db_path = Path::new(path);
+            if db_path.exists() {
+                let backup_path = format!("{}.bak", path);
+                if let Err(e) = std::fs::copy(path, &backup_path) {
+                    eprintln!("Warning: failed to create backup: {}", e);
+                }
+            }
+        }
+
         let conn = Connection::open(path)?;
         conn.execute_batch(
             "PRAGMA foreign_keys = ON;
