@@ -192,6 +192,7 @@ fn search_updated_task_reindexed() {
         None,
         None,
         None,
+        None,
     )
     .unwrap();
 

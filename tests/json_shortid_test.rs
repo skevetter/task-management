@@ -136,7 +136,7 @@ fn json_close_returns_closed_task() {
     let arr = val.as_array().unwrap();
     assert_eq!(arr.len(), 1);
     assert_eq!(arr[0]["id"].as_str().unwrap(), task_id);
-    assert_eq!(arr[0]["status"].as_str().unwrap(), "cancelled");
+    assert_eq!(arr[0]["status"].as_str().unwrap(), "done");
 }
 
 #[test]

@@ -394,6 +394,7 @@ impl Database {
         priority: Option<TaskPriority>,
         assignee: Option<&str>,
         tags: Option<&[String]>,
+        parent_task_id: Option<&str>,
         actor: Option<&str>,
     ) -> Result<Option<Task>> {
         let existing = self.get_task(id)?;
@@ -409,13 +410,14 @@ impl Database {
         let new_assignee = assignee.or(task.assignee.as_deref());
         let new_tags = tags.map(|t| t.to_vec()).unwrap_or(task.tags.clone());
         let tags_json = serde_json::to_string(&new_tags).unwrap_or_else(|_| "[]".to_string());
+        let new_parent = parent_task_id.or(task.parent_task_id.as_deref());
 
         self.conn.execute("BEGIN IMMEDIATE", [])?;
 
         let result = (|| -> Result<()> {
             self.conn.execute(
-                "UPDATE tasks SET title = ?1, description = ?2, status = ?3, priority = ?4, assignee = ?5, tags = ?6, updated_at = ?7
-                 WHERE id = ?8",
+                "UPDATE tasks SET title = ?1, description = ?2, status = ?3, priority = ?4, assignee = ?5, tags = ?6, parent_task_id = ?7, updated_at = ?8
+                 WHERE id = ?9",
                 params![
                     new_title,
                     new_description,
@@ -423,6 +425,7 @@ impl Database {
                     new_priority.to_string(),
                     new_assignee,
                     tags_json,
+                    new_parent,
                     now,
                     id,
                 ],
@@ -465,6 +468,38 @@ impl Database {
                     &now,
                 )?;
             }
+            if parent_task_id.is_some() && task.parent_task_id.as_deref() != new_parent {
+                let old_parent_str = task
+                    .parent_task_id
+                    .as_deref()
+                    .unwrap_or("none")
+                    .to_string();
+                let new_parent_str = new_parent.unwrap_or("none").to_string();
+                self.insert_timeline_event(
+                    id,
+                    "parent_changed",
+                    Some(&old_parent_str),
+                    &new_parent_str,
+                    actor,
+                    &now,
+                )?;
+
+                // Remove old parent link
+                self.conn.execute(
+                    "DELETE FROM task_links WHERE source_id = ?1 AND link_type = 'parent'",
+                    params![id],
+                )?;
+
+                // Add new parent link
+                if let Some(pid) = new_parent {
+                    let link_id = Uuid::new_v4().to_string();
+                    self.conn.execute(
+                        "INSERT INTO task_links (id, source_id, target_id, link_type, created_at)
+                         VALUES (?1, ?2, ?3, 'parent', ?4)",
+                        params![link_id, id, pid, now],
+                    )?;
+                }
+            }
 
             Ok(())
         })();
@@ -487,7 +522,7 @@ impl Database {
             priority: new_priority,
             assignee: new_assignee.map(String::from),
             tags: new_tags,
-            parent_task_id: task.parent_task_id,
+            parent_task_id: new_parent.map(String::from),
             created_at: task.created_at,
             updated_at: now,
             namespace: task.namespace,
@@ -496,14 +531,7 @@ impl Database {
 
     pub fn close_task(&self, id: &str, actor: Option<&str>) -> Result<Option<Task>> {
         self.update_task(
-            id,
-            None,
-            None,
-            Some(TaskStatus::Cancelled),
-            None,
-            None,
-            None,
-            actor,
+            id, None, None, Some(TaskStatus::Done), None, None, None, None, actor,
         )
     }
 
@@ -523,9 +551,9 @@ impl Database {
                 let now = Utc::now().to_rfc3339();
                 self.conn.execute(
                     "UPDATE tasks SET status = ?1, updated_at = ?2 WHERE id = ?3",
-                    params![TaskStatus::Cancelled.to_string(), now, id],
+                    params![TaskStatus::Done.to_string(), now, id],
                 )?;
-                let new_value = reason.unwrap_or("cancelled");
+                let new_value = reason.unwrap_or("done");
                 self.insert_timeline_event(
                     id,
                     "status_changed",
@@ -535,7 +563,7 @@ impl Database {
                     &now,
                 )?;
                 closed.push(Task {
-                    status: TaskStatus::Cancelled,
+                    status: TaskStatus::Done,
                     updated_at: now,
                     ..task
                 });

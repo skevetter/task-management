@@ -21,6 +21,7 @@ pub struct UpdateTaskParams {
     pub priority: Option<String>,
     pub assignee: Option<String>,
     pub tags: Option<Vec<String>>,
+    pub parent_task_id: Option<String>,
     pub namespace: Option<String>,
     pub actor: Option<String>,
 }
