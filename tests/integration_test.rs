@@ -61,6 +61,7 @@ fn update_task_status() {
             None,
             None,
             None,
+            None,
         )
         .unwrap()
         .expect("task should exist");
@@ -89,10 +90,10 @@ fn close_task() {
         .close_task(&task.id, None)
         .unwrap()
         .expect("task should exist");
-    assert_eq!(closed.status, TaskStatus::Cancelled);
+    assert_eq!(closed.status, TaskStatus::Done);
 
     let fetched = db.get_task(&task.id).unwrap().expect("task should exist");
-    assert_eq!(fetched.status, TaskStatus::Cancelled);
+    assert_eq!(fetched.status, TaskStatus::Done);
 }
 
 #[test]
@@ -170,6 +171,7 @@ fn list_tasks_filter_by_status() {
         None,
         None,
         Some(TaskStatus::Done),
+        None,
         None,
         None,
         None,
@@ -936,8 +938,8 @@ fn bulk_close_multiple_ids() {
         .bulk_close_tasks(&[t1.id.clone(), t2.id.clone()], Some("bot"), None)
         .unwrap();
     assert_eq!(closed.len(), 2);
-    assert_eq!(closed[0].status, TaskStatus::Cancelled);
-    assert_eq!(closed[1].status, TaskStatus::Cancelled);
+    assert_eq!(closed[0].status, TaskStatus::Done);
+    assert_eq!(closed[1].status, TaskStatus::Done);
 }
 
 #[test]
@@ -1064,4 +1066,211 @@ fn create_and_delete_user_template() {
 
     db.delete_template("hotfix").unwrap();
     assert!(db.get_template("hotfix").unwrap().is_none());
+}
+
+// --- Re-parent via update_task tests ---
+
+#[test]
+fn reparent_task_via_update() {
+    let db = test_db();
+    let parent_a = db
+        .create_task("Parent A", None, TaskPriority::High, None, &[], None, None, "default")
+        .unwrap();
+    let parent_b = db
+        .create_task("Parent B", None, TaskPriority::High, None, &[], None, None, "default")
+        .unwrap();
+    let child = db
+        .create_task(
+            "Child",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            Some(&parent_a.id),
+            None,
+            "default",
+        )
+        .unwrap();
+    assert_eq!(child.parent_task_id.as_deref(), Some(parent_a.id.as_str()));
+
+    let updated = db
+        .update_task(
+            &child.id,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(&parent_b.id),
+            Some("agent"),
+        )
+        .unwrap()
+        .expect("task should exist");
+    assert_eq!(updated.parent_task_id.as_deref(), Some(parent_b.id.as_str()));
+
+    let fetched = db.get_task(&child.id).unwrap().expect("task should exist");
+    assert_eq!(fetched.parent_task_id.as_deref(), Some(parent_b.id.as_str()));
+
+    let events = db.get_timeline(&child.id).unwrap();
+    let reparent_event = events
+        .iter()
+        .find(|e| e.event_type == "parent_changed")
+        .expect("should have parent_changed event");
+    assert_eq!(reparent_event.old_value.as_deref(), Some(parent_a.id.as_str()));
+    assert_eq!(reparent_event.new_value, parent_b.id);
+    assert_eq!(reparent_event.actor.as_deref(), Some("agent"));
+
+    let links = db.get_links(&child.id).unwrap();
+    let parent_links: Vec<_> = links.iter().filter(|(_, lt, _, _)| *lt == task_management::models::LinkType::Parent).collect();
+    assert_eq!(parent_links.len(), 1);
+    assert_eq!(parent_links[0].2, parent_b.id);
+}
+
+#[test]
+fn reparent_from_none_to_parent() {
+    let db = test_db();
+    let parent = db
+        .create_task("Parent", None, TaskPriority::High, None, &[], None, None, "default")
+        .unwrap();
+    let orphan = db
+        .create_task("Orphan", None, TaskPriority::Medium, None, &[], None, None, "default")
+        .unwrap();
+    assert!(orphan.parent_task_id.is_none());
+
+    let updated = db
+        .update_task(
+            &orphan.id,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(&parent.id),
+            None,
+        )
+        .unwrap()
+        .expect("task should exist");
+    assert_eq!(updated.parent_task_id.as_deref(), Some(parent.id.as_str()));
+
+    let events = db.get_timeline(&orphan.id).unwrap();
+    let reparent_event = events
+        .iter()
+        .find(|e| e.event_type == "parent_changed")
+        .expect("should have parent_changed event");
+    assert_eq!(reparent_event.old_value.as_deref(), Some("none"));
+    assert_eq!(reparent_event.new_value, parent.id);
+}
+
+#[test]
+fn update_without_parent_preserves_existing() {
+    let db = test_db();
+    let parent = db
+        .create_task("Parent", None, TaskPriority::High, None, &[], None, None, "default")
+        .unwrap();
+    let child = db
+        .create_task(
+            "Child",
+            None,
+            TaskPriority::Medium,
+            None,
+            &[],
+            Some(&parent.id),
+            None,
+            "default",
+        )
+        .unwrap();
+
+    let updated = db
+        .update_task(
+            &child.id,
+            Some("Renamed Child"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap()
+        .expect("task should exist");
+    assert_eq!(updated.parent_task_id.as_deref(), Some(parent.id.as_str()));
+    assert_eq!(updated.title, "Renamed Child");
+}
+
+// --- close_task sets Done, not Cancelled ---
+
+#[test]
+fn close_task_sets_done_not_cancelled() {
+    let db = test_db();
+    let task = db
+        .create_task("Finish me", None, TaskPriority::Medium, None, &[], None, None, "default")
+        .unwrap();
+    let closed = db.close_task(&task.id, Some("closer")).unwrap().expect("task should exist");
+    assert_eq!(closed.status, TaskStatus::Done);
+
+    let fetched = db.get_task(&task.id).unwrap().expect("task should exist");
+    assert_eq!(fetched.status, TaskStatus::Done);
+
+    let events = db.get_timeline(&task.id).unwrap();
+    let status_event = events
+        .iter()
+        .find(|e| e.event_type == "status_changed")
+        .expect("should have status_changed event");
+    assert_eq!(status_event.old_value.as_deref(), Some("open"));
+    assert_eq!(status_event.new_value, "done");
+}
+
+#[test]
+fn cli_reparent_task() {
+    let tmp = NamedTempFile::new().unwrap();
+    let db_path = tmp.path().to_str().unwrap();
+    let parent_a_id = create_task_via_cli(db_path, "Parent A");
+    let parent_b_id = create_task_via_cli(db_path, "Parent B");
+    let child_id = create_task_via_cli(db_path, "Child");
+
+    cli_cmd(db_path)
+        .args(["update", &child_id, "--parent", &parent_a_id])
+        .assert()
+        .success();
+
+    let show_output = cli_cmd(db_path)
+        .args(["--json", "show", &child_id])
+        .output()
+        .unwrap();
+    let val: serde_json::Value = serde_json::from_slice(&show_output.stdout).unwrap();
+    assert_eq!(val["parent_task_id"].as_str().unwrap(), parent_a_id);
+
+    cli_cmd(db_path)
+        .args(["update", &child_id, "--parent", &parent_b_id])
+        .assert()
+        .success();
+
+    let show_output = cli_cmd(db_path)
+        .args(["--json", "show", &child_id])
+        .output()
+        .unwrap();
+    let val: serde_json::Value = serde_json::from_slice(&show_output.stdout).unwrap();
+    assert_eq!(val["parent_task_id"].as_str().unwrap(), parent_b_id);
+}
+
+#[test]
+fn cli_close_task_sets_done() {
+    let tmp = NamedTempFile::new().unwrap();
+    let db_path = tmp.path().to_str().unwrap();
+    let task_id = create_task_via_cli(db_path, "Close me");
+
+    cli_cmd(db_path)
+        .args(["close", &task_id])
+        .assert()
+        .success();
+
+    let show_output = cli_cmd(db_path)
+        .args(["--json", "show", &task_id])
+        .output()
+        .unwrap();
+    let val: serde_json::Value = serde_json::from_slice(&show_output.stdout).unwrap();
+    assert_eq!(val["status"].as_str().unwrap(), "done");
 }

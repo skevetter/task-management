@@ -92,6 +92,8 @@ enum Commands {
         assignee: Option<String>,
         #[arg(long = "tag")]
         tags: Vec<String>,
+        #[arg(long = "parent")]
+        parent_task_id: Option<String>,
         #[arg(long)]
         actor: Option<String>,
     },
@@ -343,6 +345,7 @@ fn main() {
             priority,
             assignee,
             tags,
+            parent_task_id,
             actor,
         } => {
             let id = resolve(&id);
@@ -360,6 +363,7 @@ fn main() {
                     priority,
                     assignee.as_deref(),
                     tags_opt,
+                    parent_task_id.as_deref(),
                     actor.as_deref(),
                 )
                 .unwrap_or_else(|e| {

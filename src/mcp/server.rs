@@ -127,6 +127,7 @@ impl TaskMcpServer {
                 priority,
                 params.assignee.as_deref(),
                 tags_slice,
+                params.parent_task_id.as_deref(),
                 actor.as_deref(),
             )
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?

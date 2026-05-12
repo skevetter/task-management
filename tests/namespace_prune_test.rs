@@ -68,6 +68,7 @@ fn list_namespaces_last_activity() {
         None,
         None,
         None,
+        None,
     )
     .unwrap();
 
