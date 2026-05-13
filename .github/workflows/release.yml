@@ -1,0 +1,143 @@
+name: Release
+
+permissions:
+  contents: write
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      manifest: ${{ steps.plan.outputs.manifest }}
+      tag: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install cargo-dist
+        uses: axodotdev/cargo-dist-action@v0
+        with:
+          args: dist plan --output-format=json
+          installer: true
+        id: plan
+      - name: Upload plan manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: plan-manifest
+          path: dist-manifest.json
+
+  build-local-artifacts:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-apple-darwin
+            os: macos-14
+          - target: aarch64-apple-darwin
+            os: macos-14
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install cross-compilation tools
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+      - name: Add Rust target
+        run: rustup target add ${{ matrix.target }}
+      - name: Install cargo-dist
+        uses: axodotdev/cargo-dist-action@v0
+        with:
+          args: dist build --target=${{ matrix.target }} --output-format=json
+          installer: true
+        id: build
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-${{ matrix.target }}
+          path: target/distrib/
+
+  build-global-artifacts:
+    needs: build-local-artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download all local artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: artifacts-*
+          path: target/distrib/
+          merge-multiple: true
+      - name: Install cargo-dist
+        uses: axodotdev/cargo-dist-action@v0
+        with:
+          args: dist build --artifacts=global --output-format=json
+          installer: true
+        id: build-global
+      - name: Upload global artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-global
+          path: target/distrib/
+
+  host:
+    needs: [plan, build-local-artifacts, build-global-artifacts]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: artifacts-*
+          path: dist-artifacts/
+          merge-multiple: true
+      - name: Download plan manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: plan-manifest
+          path: .
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          files: dist-artifacts/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-homebrew:
+    needs: host
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download plan manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: plan-manifest
+          path: .
+      - name: Install cargo-dist
+        uses: axodotdev/cargo-dist-action@v0
+        with:
+          args: dist publish --artifacts=homebrew
+          installer: true
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
