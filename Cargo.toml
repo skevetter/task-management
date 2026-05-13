@@ -2,6 +2,9 @@
 name = "task-management"
 version = "0.5.0"
 edition = "2024"
+repository = "https://github.com/skevetter/task-management"
+license = "MIT"
+homepage = "https://github.com/skevetter/task-management"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -22,3 +25,7 @@ task-management = { path = ".", features = ["test-support"] }
 assert_cmd = "2"
 tempfile = "3"
 predicates = "3"
+
+[profile.dist]
+inherits = "release"
+lto = "thin"
